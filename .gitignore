@@ -1,0 +1,10 @@
+# Local Pi runtime state
+.atl/
+.pi/
+
+# Local Python runtime and generated artifacts
+.venv/
+.cache/
+*.pt
+__pycache__/
+results/
