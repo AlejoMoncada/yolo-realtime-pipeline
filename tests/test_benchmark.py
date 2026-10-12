@@ -78,6 +78,35 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(report["cases"]["threaded_optimized_imgsz"]["imgsz"], 320)
         self.assertIn("does not establish predictive-quality parity", report["resolution_notice"])
 
+    def test_realtime_flag_reaches_every_case(self):
+        self.run_case(realtime=True, optimized_imgsz=320, repeats=1)
+        self.assertEqual([call.realtime for call in self.calls], [True, True, True])
+        self.calls.clear()
+        report = self.run_case(repeats=1)
+        self.assertEqual([call.realtime for call in self.calls], [False, False])
+        self.assertIs(report["parameters"]["realtime"], False)
+
+    def test_optimized_weights_apply_only_to_the_optimized_case(self):
+        report = self.run_case(weights="yolo11n.pt", imgsz=640, optimized_imgsz=320, optimized_weights="yolo11n-320.onnx", repeats=1)
+        self.assertEqual([(call.mode, call.imgsz, call.weights) for call in self.calls], [
+            ("sync", 640, "yolo11n.pt"), ("threaded", 640, "yolo11n.pt"), ("threaded", 320, "yolo11n-320.onnx"),
+        ])
+        self.assertEqual(report["cases"]["threaded_optimized_imgsz"]["weights"], "yolo11n-320.onnx")
+        self.assertEqual(report["cases"]["sync"]["weights"], "yolo11n.pt")
+        self.assertEqual(report["parameters"]["optimized_weights"], "yolo11n-320.onnx")
+
+    def test_optimized_weights_require_optimized_imgsz(self):
+        with self.assertRaisesRegex(ValueError, "optimized-weights requires optimized-imgsz"):
+            self.run_case(optimized_weights="yolo11n-320.onnx", repeats=1)
+        self.assertEqual(self.calls, [])
+
+    def test_help_lists_realtime_and_optimized_weights(self):
+        completed = subprocess.run([sys.executable, str(ROOT / "benchmark.py"), "--help"], cwd=ROOT,
+                                   text=True, capture_output=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("--realtime", completed.stdout)
+        self.assertIn("--optimized-weights", completed.stdout)
+
     def test_summary_math_artifact_schema_and_unique_output_directories(self):
         report = self.run_case(repeats=2)
         threaded = report["cases"]["threaded"]

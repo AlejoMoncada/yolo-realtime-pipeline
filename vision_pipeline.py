@@ -32,6 +32,33 @@ class PipelineConfig:
     show: bool = False
     output_dir: str = "results"
     queue_size: int = 2
+    realtime: bool = False
+
+
+def _make_pacer(
+    config: PipelineConfig,
+    source_fps: float | None,
+    clock: Callable[[], float],
+    sleep: Callable[[float], Any],
+) -> Callable[[int], float] | None:
+    """Release frame n at origin + n / source_fps, emulating live camera arrival; None when offline."""
+    if not config.realtime:
+        return None
+    if source_fps is None or not math.isfinite(source_fps) or source_fps <= 0:
+        raise ValueError("realtime pacing requires a positive source FPS")
+    period = 1.0 / source_fps
+    origin: list[float] = []
+
+    def wait_until_due(sequence: int) -> float:
+        now = clock()
+        if not origin:
+            origin.append(now)
+        due = origin[0] + sequence * period
+        if due > now:
+            sleep(due - now)
+        return due
+
+    return wait_until_due
 
 
 def _validate_config(config: PipelineConfig, mode: str) -> None:
@@ -126,11 +153,13 @@ def run_sync(
     display: Callable[[str, Any], None] | None = None,
     wait_key: Callable[[int], int] | None = None,
     resource_sampler: Callable[[], dict[str, float | int | None]] | None = None,
+    sleep: Callable[[float], Any] = time.sleep,
 ) -> dict[str, Any]:
     """Run capture→predict→render serially; dependencies are injectable for tests."""
     _validate_config(config, "sync")
     if config.show and (display is None or wait_key is None):
         raise ValueError("display and wait_key callbacks are required when show is enabled")
+    pace = _make_pacer(config, source_fps, clock, sleep)
 
     rows: list[dict[str, Any]] = []
     started: float | None = None
@@ -159,6 +188,9 @@ def run_sync(
                 break
 
             frame_id = len(rows)
+            # Realtime latency starts when the frame would have arrived from a camera, so backlog is counted.
+            origin = pace(frame_id) if pace else read_started
+            capture_lag_ms = max(read_finished - origin, 0.0) * 1000 if pace else 0.0
             capture_time = wall_clock()
             predict_started = clock()
             synchronizer(config.device)
@@ -186,6 +218,7 @@ def run_sync(
                 "frame_id": frame_id,
                 "capture_time_unix_s": capture_time,
                 "capture_ms": (read_finished - read_started) * 1000,
+                "capture_lag_ms": capture_lag_ms,
                 "queue_wait_ms": 0.0,
                 "preprocess_ms": preprocess_ms,
                 "inference_ms": inference_ms,
@@ -194,7 +227,7 @@ def run_sync(
                 "annotation_ms": (annotation_finished - annotate_started) * 1000,
                 "display_ms": (rendered_at - display_started) * 1000 if config.show else None,
                 "annotation_display_ms": (rendered_at - annotate_started) * 1000,
-                "end_to_end_ms": (rendered_at - read_started) * 1000,
+                "end_to_end_ms": (rendered_at - origin) * 1000,
                 "completion_offset_s": rendered_at - started,
                 "detection_count": _detection_count(predictions),
                 "process_cpu_percent": resource.get("process_cpu_percent"),
@@ -229,7 +262,7 @@ def _assemble_run(
     offsets = [float(row["completion_offset_s"]) for row in rows]
     windows = [sum(start <= offset < start + 1.0 for offset in offsets) for start in range(int(elapsed // 1.0))]
     annotated_fps = len(rows) / elapsed if elapsed > 0 else None
-    stage_names = ("capture_ms", "preprocess_ms", "inference_ms", "postprocess_ms", "predict_wall_ms", "queue_wait_ms", "annotation_ms", "display_ms", "annotation_display_ms", "end_to_end_ms")
+    stage_names = ("capture_ms", "capture_lag_ms", "preprocess_ms", "inference_ms", "postprocess_ms", "predict_wall_ms", "queue_wait_ms", "annotation_ms", "display_ms", "annotation_display_ms", "end_to_end_ms")
     summary = {
         "config": asdict(config),
         "versions": _versions(),
@@ -249,6 +282,7 @@ def _assemble_run(
         "stability_window_s": 1,
         "complete_stability_windows": windows,
         "stability_windows_exclude_trailing_partial": True,
+        "end_to_end_origin": "scheduled camera-arrival time at source FPS (includes backlog)" if config.realtime else "source-read start",
         "timing_duration": "elapsed_s spans first measured source-read start through stop/completion; excludes model setup, warm-up, worker shutdown, and cleanup",
     }
     return {"rows": rows, "summary": summary}
@@ -270,6 +304,7 @@ def run_threaded(
     wait_key: Callable[[int], int] | None = None,
     resource_sampler: Callable[[], dict[str, float | int | None]] | None = None,
     join_timeout: float = 1.0,
+    sleep: Callable[[float], Any] | None = None,
 ) -> dict[str, Any]:
     """Overlap owned capture and single-caller inference; render/display on caller thread."""
     _validate_config(config, "threaded")
@@ -292,6 +327,8 @@ def run_threaded(
     capture_thread: threading.Thread | None = None
     inference_thread: threading.Thread | None = None
     capture_owned_by_worker = False
+    # The default pacing wait is the cancellation event, so quitting never waits out a frame period.
+    pace = _make_pacer(config, source_fps, clock, sleep or cancelled.wait)
 
     def fail(stage: str, exc: BaseException) -> None:
         with errors_lock:
@@ -322,7 +359,11 @@ def run_threaded(
                 ok, frame = captured
                 if not ok or frame is None:
                     break
-                packet = (sequence, frame, read_start, read_end, wall_clock())
+                origin = pace(sequence) if pace else read_start
+                if cancelled.is_set():
+                    return
+                capture_lag_ms = max(read_end - origin, 0.0) * 1000 if pace else 0.0
+                packet = (sequence, frame, read_start, read_end, wall_clock(), origin, capture_lag_ms)
                 sequence += 1
                 if not put_bounded(frames, packet):
                     return
@@ -345,14 +386,14 @@ def run_threaded(
                 if item is eof:
                     put_bounded(results, done)
                     return
-                frame_id, frame, read_start, read_end, capture_unix = item
+                frame_id, frame, read_start, read_end, capture_unix, origin, capture_lag_ms = item
                 dequeued = clock()
                 synchronizer(config.device)
                 predict_start = clock()
                 predictions = predictor(frame)
                 synchronizer(config.device)
                 predict_end = clock()
-                packet = (frame_id, frame, predictions, read_start, read_end, capture_unix, dequeued, predict_end, (predict_end - predict_start) * 1000)
+                packet = (frame_id, frame, predictions, read_start, read_end, capture_unix, origin, capture_lag_ms, dequeued, predict_end, (predict_end - predict_start) * 1000)
                 if not put_bounded(results, packet):
                     return
         except BaseException as exc:
@@ -389,7 +430,7 @@ def run_threaded(
             if item is done:
                 inference_done = True
                 continue
-            frame_id, frame, predictions, read_start, read_end, capture_unix, dequeued, predict_end, predict_wall_ms = item
+            frame_id, frame, predictions, read_start, read_end, capture_unix, origin, capture_lag_ms, dequeued, predict_end, predict_wall_ms = item
             annotate_started = clock()
             annotated = renderer(frame, predictions)
             annotation_finished = clock()
@@ -404,12 +445,15 @@ def run_threaded(
                     stop_reason = "user_quit"
             else:
                 completed = annotation_finished
-            queue_wait_ms = ((dequeued - read_end) + (annotate_started - predict_end)) * 1000
+            # In realtime mode a frame is queued only after its scheduled arrival, not when it was decoded.
+            queued_at = max(read_end, origin)
+            queue_wait_ms = (max(dequeued - queued_at, 0.0) + (annotate_started - predict_end)) * 1000
             resource = resource_sampler() if resource_sampler else {"process_cpu_percent": None, "rss_bytes": None}
             rows.append({
                 "frame_id": frame_id,
                 "capture_time_unix_s": capture_unix,
                 "capture_ms": (read_end - read_start) * 1000,
+                "capture_lag_ms": capture_lag_ms,
                 "queue_wait_ms": queue_wait_ms,
                 "preprocess_ms": _result_speed(predictions)[0],
                 "inference_ms": _result_speed(predictions)[1],
@@ -418,7 +462,7 @@ def run_threaded(
                 "annotation_ms": (annotation_finished - annotate_started) * 1000,
                 "display_ms": (completed - display_started) * 1000 if config.show else None,
                 "annotation_display_ms": (completed - annotate_started) * 1000,
-                "end_to_end_ms": (completed - read_start) * 1000,
+                "end_to_end_ms": (completed - origin) * 1000,
                 "completion_offset_s": completed - started,
                 "detection_count": _detection_count(predictions),
                 "process_cpu_percent": resource.get("process_cpu_percent"),
@@ -503,7 +547,7 @@ def export_run(result: dict[str, Any], output_dir: str | Path) -> tuple[Path, Pa
     json_path = directory / "summary.json"
     rows = result["rows"]
     fields = list(rows[0]) if rows else [
-        "frame_id", "capture_time_unix_s", "capture_ms", "queue_wait_ms", "preprocess_ms", "inference_ms", "postprocess_ms",
+        "frame_id", "capture_time_unix_s", "capture_ms", "capture_lag_ms", "queue_wait_ms", "preprocess_ms", "inference_ms", "postprocess_ms",
         "predict_wall_ms", "annotation_ms", "display_ms", "annotation_display_ms", "end_to_end_ms", "completion_offset_s", "detection_count",
         "process_cpu_percent", "rss_bytes",
     ]
@@ -583,11 +627,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--warmup", type=int, default=0, help="number of dummy-image model warm-up predictions")
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--show", action="store_true", help="display annotated frames; q stops capture")
+    parser.add_argument("--realtime", action="store_true", help="pace a video file at its source FPS to emulate a live camera; latency then includes any backlog")
     parser.add_argument("--output-dir", default="results")
     args = parser.parse_args(argv)
     if args.imgsz <= 0 or args.warmup < 0 or args.queue_size <= 0 or not 0 <= args.conf <= 1 or (args.max_frames is not None and args.max_frames <= 0):
         parser.error("imgsz and queue-size must be positive, warmup non-negative, conf in [0, 1], and max-frames positive")
-    config = PipelineConfig(args.source, args.weights, args.mode, args.imgsz, args.device, args.conf, args.warmup, args.max_frames, args.show, args.output_dir, args.queue_size)
+    config = PipelineConfig(args.source, args.weights, args.mode, args.imgsz, args.device, args.conf, args.warmup, args.max_frames, args.show, args.output_dir, args.queue_size, args.realtime)
     capture = None
     runner_called = False
     try:

@@ -2,3 +2,6 @@ ultralytics>=8.3,<9
 opencv-python>=4.10,<5
 numpy>=1.26,<3
 psutil>=6,<8
+onnx>=1.16,<2
+onnxslim>=0.1.50,<1
+onnxruntime>=1.18,<2

@@ -225,6 +225,8 @@ class PipelineTests(unittest.TestCase):
                         patch.object(vision_pipeline, "open_capture", return_value=capture),
                         patch.object(vision_pipeline, "load_yolo", return_value=(lambda f: [], lambda f, p: f, "detect")),
                         patch.object(vision_pipeline, runner_name, return_value={"ok": True}) as runner,
+                        # Importing torch inside patch.dict(sys.modules) and then evicting it segfaults on reimport.
+                        patch.object(vision_pipeline, "_hardware", return_value={}),
                         patch.dict(sys.modules, {"cv2": fake_cv2}),
                     ):
                         self.assertEqual(run_real(config), {"ok": True})
@@ -394,6 +396,84 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("--max-frames", completed.stdout)
         self.assertNotIn("ultralytics", completed.stderr.lower())
+
+    def run_paced_sync(self, frames, predict_cost, *, realtime=True, source_fps=10.0):
+        now = [0.0]
+        sleeps = []
+        def sleep(seconds):
+            sleeps.append(round(seconds, 6))
+            now[0] += seconds
+        def predict(frame):
+            now[0] += predict_cost
+            return [FakeResult(1)]
+        result = run_sync(
+            self.config(realtime=realtime), FakeCapture(frames), predict, lambda f, p: f,
+            source_fps=source_fps, clock=lambda: now[0], wall_clock=lambda: 0,
+            synchronizer=lambda _: None, sleep=sleep,
+        )
+        return result, sleeps
+
+    def test_realtime_sync_waits_for_each_frame_arrival_at_source_fps(self):
+        result, sleeps = self.run_paced_sync([1, 2, 3], predict_cost=0.01)
+        self.assertEqual(sleeps, [0.09, 0.09])
+        self.assertEqual([round(row["capture_lag_ms"], 6) for row in result["rows"]], [0.0, 0.0, 0.0])
+        self.assertEqual([round(row["end_to_end_ms"], 6) for row in result["rows"]], [10.0, 10.0, 10.0])
+        self.assertTrue(result["summary"]["config"]["realtime"])
+
+    def test_realtime_latency_includes_backlog_when_processing_is_slower_than_source(self):
+        result, sleeps = self.run_paced_sync([1, 2, 3], predict_cost=0.25)
+        self.assertEqual(sleeps, [])
+        self.assertEqual([round(row["capture_lag_ms"], 6) for row in result["rows"]], [0.0, 150.0, 300.0])
+        self.assertEqual([round(row["end_to_end_ms"], 6) for row in result["rows"]], [250.0, 400.0, 550.0])
+        self.assertIsNotNone(result["summary"]["stage_timings_ms"]["capture_lag_ms"]["p95"])
+
+    def test_offline_mode_never_sleeps_and_reports_zero_capture_lag(self):
+        result, sleeps = self.run_paced_sync([1, 2], predict_cost=0.01, realtime=False)
+        self.assertEqual(sleeps, [])
+        self.assertEqual([row["capture_lag_ms"] for row in result["rows"]], [0.0, 0.0])
+        self.assertFalse(result["summary"]["config"]["realtime"])
+
+    def test_realtime_requires_a_positive_source_fps(self):
+        for fps in (None, 0.0, math.nan):
+            with self.subTest(fps=fps), self.assertRaisesRegex(ValueError, "realtime pacing requires a positive source FPS"):
+                run_sync(self.config(realtime=True), FakeCapture([1]), lambda f: [], lambda f, p: f, source_fps=fps)
+            with self.subTest(fps=fps, mode="threaded"), self.assertRaisesRegex(ValueError, "realtime pacing requires a positive source FPS"):
+                run_threaded(self.threaded_config(realtime=True), FakeCapture([1]), lambda f: [], lambda f, p: f, source_fps=fps)
+
+    def test_realtime_threaded_paces_capture_and_keeps_every_frame_in_order(self):
+        import time
+
+        capture = FakeCapture([1, 2, 3, 4, 5])
+        started = time.perf_counter()
+        result = run_threaded(self.threaded_config(realtime=True), capture, lambda f: [FakeResult(f)], lambda f, p: f,
+                              source_fps=50.0, synchronizer=lambda _: None)
+        self.assertGreaterEqual(time.perf_counter() - started, 4 * 0.02 * 0.9)
+        self.assertEqual([row["frame_id"] for row in result["rows"]], [0, 1, 2, 3, 4])
+        self.assertEqual([row["detection_count"] for row in result["rows"]], [1, 2, 3, 4, 5])
+        for row in result["rows"]:
+            self.assertGreaterEqual(row["capture_lag_ms"], 0.0)
+            self.assertGreaterEqual(row["end_to_end_ms"], row["capture_ms"])
+            # Waiting for a frame's scheduled arrival is not queueing; queue time starts at arrival.
+            self.assertLess(row["queue_wait_ms"], 15.0)
+            self.assertLessEqual(row["queue_wait_ms"], row["end_to_end_ms"])
+        self.assertTrue(capture.released)
+
+    def test_threaded_realtime_pacing_wait_is_cancelled_by_quit(self):
+        import time
+
+        capture = FakeCapture([1, 2, 3])
+        started = time.perf_counter()
+        result = run_threaded(self.threaded_config(realtime=True, show=True), capture, lambda f: [FakeResult(f)], lambda f, p: f,
+                              source_fps=0.5, synchronizer=lambda _: None, display=lambda title, frame: None,
+                              wait_key=lambda delay: ord("q"))
+        self.assertLess(time.perf_counter() - started, 1.5)
+        self.assertEqual(result["summary"]["stop_reason"], "user_quit")
+        self.assertTrue(capture.released)
+
+    def test_cli_help_lists_realtime_option(self):
+        completed = subprocess.run([sys.executable, str(ROOT / "pipeline.py"), "--help"], cwd=ROOT, text=True, capture_output=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("--realtime", completed.stdout)
 
     def test_cli_rejects_invalid_numeric_options(self):
         completed = subprocess.run(

@@ -94,6 +94,8 @@ def run_benchmark(
     runner: Runner | None = None,
     frame_count_reader: Callable[[Path], int] | None = None,
     optimized_imgsz: int | None = None,
+    optimized_weights: str | None = None,
+    realtime: bool = False,
 ) -> dict[str, Any]:
     path = Path(source).expanduser()
     if not path.is_file():
@@ -104,6 +106,8 @@ def run_benchmark(
         raise ValueError("conf must be finite and in [0, 1]")
     if not weights.strip():
         raise ValueError("weights must be non-empty")
+    if optimized_weights is not None and (optimized_imgsz is None or not optimized_weights.strip()):
+        raise ValueError("optimized-weights requires optimized-imgsz and must be non-empty")
     run_real = runner
     if run_real is None:
         from vision_pipeline import run_real as real_adapter
@@ -116,27 +120,27 @@ def run_benchmark(
 
     if optimized_imgsz is not None and optimized_imgsz <= 0:
         raise ValueError("optimized-imgsz must be positive")
-    cases: list[tuple[str, int, str]] = [("sync", imgsz, "sync"), ("threaded", imgsz, "threaded")]
+    cases: list[tuple[str, int, str, str]] = [("sync", imgsz, "sync", weights), ("threaded", imgsz, "threaded", weights)]
     if optimized_imgsz is not None:
-        cases.append(("threaded_optimized_imgsz", optimized_imgsz, "threaded"))
+        cases.append(("threaded_optimized_imgsz", optimized_imgsz, "threaded", optimized_weights or weights))
     # A unique child directory makes reruns independent even when output_dir is reused.
     root = Path(output_dir) / f"benchmark-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     root.mkdir(parents=True, exist_ok=False)
-    case_runs: dict[str, list[dict[str, Any]]] = {name: [] for name, _, _ in cases}
+    case_runs: dict[str, list[dict[str, Any]]] = {name: [] for name, _, _, _ in cases}
     order: list[dict[str, Any]] = []
     expected_ids: list[int] | None = None
     run_index = 0
     for repeat in range(repeats):
         rotated = cases[repeat % len(cases):] + cases[:repeat % len(cases)]
-        for name, resolution, mode in rotated:
-            config = PipelineConfig(str(path.resolve()), weights, mode, resolution, device, conf, warmup, max_frames, False, str(root), queue_size)
+        for name, resolution, mode, case_weights in rotated:
+            config = PipelineConfig(str(path.resolve()), case_weights, mode, resolution, device, conf, warmup, max_frames, False, str(root), queue_size, realtime)
             result = run_real(config)
             ids = _validate_result(result, expected_count, expected_ids)
             if expected_ids is None:
                 expected_ids = ids
             run_dir = root / f"{run_index:02d}-{name}-repeat-{repeat + 1}"
             run_dir.mkdir()
-            result["summary"]["benchmark"] = {"case": name, "repeat": repeat + 1, "order_index": run_index, "imgsz": resolution, "mode": mode}
+            result["summary"]["benchmark"] = {"case": name, "repeat": repeat + 1, "order_index": run_index, "imgsz": resolution, "mode": mode, "weights": case_weights}
             csv_path, json_path = export_run(result, run_dir)
             case_runs[name].append({"summary": result["summary"], "csv": str(csv_path.relative_to(root)), "json": str(json_path.relative_to(root))})
             order.append({"order_index": run_index, "repeat": repeat + 1, "case": name})
@@ -147,7 +151,7 @@ def run_benchmark(
         "input": identity,
         "selected_frame_ids": expected_ids,
         "selected_frame_count": expected_count,
-        "parameters": {"weights": weights, "device": device or "auto", "conf": conf, "imgsz": imgsz, "warmup": warmup, "max_frames": max_frames, "queue_size": queue_size, "repeats": repeats},
+        "parameters": {"weights": weights, "device": device or "auto", "conf": conf, "imgsz": imgsz, "warmup": warmup, "max_frames": max_frames, "queue_size": queue_size, "repeats": repeats, "optimized_weights": optimized_weights, "realtime": realtime},
         "environment": {
             "hardware": case_runs["sync"][0]["summary"].get("hardware"),
             "versions": case_runs["sync"][0]["summary"].get("versions"),
@@ -157,9 +161,9 @@ def run_benchmark(
         "resolution_notice": "The optional optimized-imgsz case changes inference resolution and does not establish predictive-quality parity; no ground-truth quality evaluation is performed.",
         "concurrency_notice": "Sync versus threaded uses identical weights, device, confidence, resolution and selected source frame IDs.",
     }
-    for name, resolution, mode in cases:
+    for name, resolution, mode, case_weights in cases:
         summary = _case_summary(case_runs[name], baseline["median_throughput_fps"])
-        comparison["cases"][name] = {"imgsz": resolution, "mode": mode, **summary, "artifacts": [{"csv": run["csv"], "summary_json": run["json"]} for run in case_runs[name]]}
+        comparison["cases"][name] = {"imgsz": resolution, "mode": mode, "weights": case_weights, **summary, "artifacts": [{"csv": run["csv"], "summary_json": run["json"]} for run in case_runs[name]]}
     with (root / "comparison.json").open("w", encoding="utf-8") as handle:
         json.dump(comparison, handle, indent=2, allow_nan=False)
         handle.write("\n")
@@ -178,6 +182,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--queue-size", type=int, default=2)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--optimized-imgsz", type=int, help="optional separate threaded run at a different resolution")
+    parser.add_argument("--optimized-weights", help="weights for the optimized case only, e.g. an ONNX export at --optimized-imgsz (see export_model.py)")
+    parser.add_argument("--realtime", action="store_true", help="pace every case at the source FPS to emulate a live camera; latency then includes any backlog")
     parser.add_argument("--output-dir", default="benchmark-results")
     return parser
 
@@ -192,12 +198,14 @@ def main(argv: Iterable[str] | None = None) -> int:
             or (args.max_frames is not None and args.max_frames <= 0)
             or (args.optimized_imgsz is not None and args.optimized_imgsz <= 0)
             or not math.isfinite(args.conf) or not 0 <= args.conf <= 1
-            or not args.weights.strip()):
-        parser.error("imgsz, queue-size and repeats must be positive; warmup non-negative; max-frames positive; conf finite in [0, 1]; weights non-empty")
+            or not args.weights.strip()
+            or (args.optimized_weights is not None and (args.optimized_imgsz is None or not args.optimized_weights.strip()))):
+        parser.error("imgsz, queue-size and repeats must be positive; warmup non-negative; max-frames positive; conf finite in [0, 1]; weights non-empty; optimized-weights requires optimized-imgsz")
     try:
         report = run_benchmark(path, weights=args.weights, device=args.device, conf=args.conf, imgsz=args.imgsz,
                                warmup=args.warmup, max_frames=args.max_frames, queue_size=args.queue_size,
-                               repeats=args.repeats, output_dir=args.output_dir, optimized_imgsz=args.optimized_imgsz)
+                               repeats=args.repeats, output_dir=args.output_dir, optimized_imgsz=args.optimized_imgsz,
+                               optimized_weights=args.optimized_weights, realtime=args.realtime)
     except (OSError, RuntimeError, ValueError, ImportError) as exc:
         detail = f"required runtime dependency unavailable ({exc}); install project dependencies from requirements.txt" if isinstance(exc, ImportError) else str(exc)
         print(f"benchmark error: {detail}", file=sys.stderr)
