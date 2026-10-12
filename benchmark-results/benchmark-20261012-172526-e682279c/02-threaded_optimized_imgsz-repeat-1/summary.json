@@ -1,0 +1,164 @@
+{
+  "config": {
+    "source": "/Users/williammoncada/Downloads/TAIA_Unidad3/Videos_prueba/car-detection.mp4",
+    "weights": "yolo11n-320.onnx",
+    "mode": "threaded",
+    "imgsz": 320,
+    "device": "cpu",
+    "conf": 0.25,
+    "warmup": 2,
+    "max_frames": null,
+    "show": false,
+    "output_dir": "benchmark-results/benchmark-20261012-172526-e682279c",
+    "queue_size": 2,
+    "realtime": true
+  },
+  "versions": {
+    "python": "3.12.11",
+    "ultralytics": "8.4.176",
+    "opencv-python": "4.14.0.94",
+    "numpy": "2.5.4",
+    "psutil": "7.2.2"
+  },
+  "hardware": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "requested_device": "cpu",
+    "torch": "2.14.1",
+    "cuda_available": false,
+    "mps_available": true
+  },
+  "model": "detect",
+  "frames": 377,
+  "stop_reason": "eof",
+  "elapsed_s": 30.09691495797597,
+  "annotated_throughput_fps": 12.52620079255304,
+  "display_fps": null,
+  "source_fps": 12.5,
+  "latency_end_to_end_ms": {
+    "mean": 10.135055474865322,
+    "p50": 10.567457997240126,
+    "p95": 12.35844164621085,
+    "p99": 14.178687925450506
+  },
+  "predict_wall_ms": {
+    "mean": 6.5077039149444085,
+    "p50": 6.30141596775502,
+    "p95": 7.955541578121483,
+    "p99": 9.881956847384574
+  },
+  "stage_timings_ms": {
+    "capture_ms": {
+      "mean": 0.2925858662441491,
+      "p50": 0.25150005239993334,
+      "p95": 0.3852665424346923,
+      "p99": 0.652945102192463
+    },
+    "capture_lag_ms": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    },
+    "preprocess_ms": {
+      "mean": 0.39392816389488444,
+      "p50": 0.3649169811978936,
+      "p95": 0.5034250672906636,
+      "p99": 0.6640800135210156
+    },
+    "inference_ms": {
+      "mean": 5.506318397894106,
+      "p50": 5.313500063493848,
+      "p95": 6.880791857838631,
+      "p99": 8.444653679616755
+    },
+    "postprocess_ms": {
+      "mean": 0.3730324936897274,
+      "p50": 0.3287500003352761,
+      "p95": 0.6637583253905177,
+      "p99": 0.9668361488729733
+    },
+    "predict_wall_ms": {
+      "mean": 6.5077039149444085,
+      "p50": 6.30141596775502,
+      "p95": 7.955541578121483,
+      "p99": 9.881956847384574
+    },
+    "queue_wait_ms": {
+      "mean": 3.4426657831301264,
+      "p50": 3.9240409387275577,
+      "p95": 5.101158330217004,
+      "p99": 5.12750678230077
+    },
+    "annotation_ms": {
+      "mean": 0.16906069324843448,
+      "p50": 0.15504099428653717,
+      "p95": 0.31795818358659733,
+      "p99": 0.4108361713588238
+    },
+    "display_ms": {
+      "mean": null,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "annotation_display_ms": {
+      "mean": 0.16906069324843448,
+      "p50": 0.15504099428653717,
+      "p95": 0.31795818358659733,
+      "p99": 0.4108361713588238
+    },
+    "end_to_end_ms": {
+      "mean": 10.135055474865322,
+      "p50": 10.567457997240126,
+      "p95": 12.35844164621085,
+      "p99": 14.178687925450506
+    }
+  },
+  "process_cpu_percent_semantics": "psutil process utilization sampled after each frame; first sample may be 0; null when unavailable",
+  "rss_bytes_semantics": "process resident set size sampled after each frame; null when unavailable",
+  "stability_window_s": 1,
+  "complete_stability_windows": [
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12,
+    13,
+    12
+  ],
+  "stability_windows_exclude_trailing_partial": true,
+  "end_to_end_origin": "scheduled camera-arrival time at source FPS (includes backlog)",
+  "timing_duration": "elapsed_s spans first measured source-read start through stop/completion; excludes model setup, warm-up, worker shutdown, and cleanup",
+  "benchmark": {
+    "case": "threaded_optimized_imgsz",
+    "repeat": 1,
+    "order_index": 2,
+    "imgsz": 320,
+    "mode": "threaded",
+    "weights": "yolo11n-320.onnx"
+  }
+}

@@ -46,11 +46,11 @@ The benchmark accepts an existing local video file with a positive frame count r
 
 Each invocation creates a unique output directory. Each run contains `frames.csv` and `summary.json`. `comparison.json` records identity, configuration, run order, median throughput, median E2E p95, speedup, and percentage change. The benchmark reports observed results. It does not invent values or claim an improvement before measurement.
 
-`--optimized-imgsz` adds a threaded case at another resolution. This case changes more than concurrency and does not prove equal quality. No model training, ONNX export, quantization, batching, or result above 60 FPS was performed or demonstrated. The `pipeline.py` output directory can overwrite `frames.csv` and `summary.json`; use separate directories for independent runs.
+`--optimized-imgsz` adds a threaded case at another resolution. This case changes more than concurrency and does not prove equal quality. `--optimized-weights` lets that case use another format, for example an ONNX file exported with `export_model.py` at the same resolution. No training, quantization, or batching is implemented. `--realtime` releases each frame at the source FPS to measure latency as with a camera. The `pipeline.py` output directory can overwrite `frames.csv` and `summary.json`; use separate directories for independent runs.
 
 ## 5. Basic use and evidence
 
-The commands below show installation, execution, a controlled comparison, and tests. The documented local installation did not finish because disk space ran out. Do not read these commands as evidence that all dependencies are installed.
+The commands below show installation, execution, a controlled comparison, and tests.
 
 ```sh
 uv venv --python 3.12 .venv
@@ -66,14 +66,25 @@ Recorded corrections separated `capture_ms` from display and annotation timings,
 
 ## 6. Status and next steps
 
-The local installation stopped with `No space left on device`, and `.venv` is incomplete. Actual YOLO timings, improvements, bottlenecks, physical display, camera, CUDA/MPS, labeled quality, and long-duration stability remain unverified. Native review is also pending. Inspection stopped for managed-asset maintenance before a review started. There is no review approval or receipt.
+Tests: `.venv/bin/python -m unittest discover -s tests` runs 47 fake-backend tests. Real measurements (macOS arm64, CPU, Python 3.12, Ultralytics 8.4, ONNX Runtime 1.31, `yolo11n`) use the same `car-detection.mp4` video (768×432, 12.5 FPS, 377 frames, SHA-256 `d31e0ebf…cca34`) and 3 repeats per case:
 
-The next practical step is to obtain enough disk space and install the requirements in the local environment. Then use a representative video and labeled data if quality will be evaluated. Run controlled cases with identical parameters, inspect their artifacts, and identify the stage that limits the pipeline. Repeat runs as needed to assess quality and stability. Do not report unavailable checks as successful.
+| Run | Case | Median throughput | Median E2E p95 |
+|---|---|---|---|
+| Offline `benchmark-20261012-171741-64736e26` | sync, `.pt`, 640 | 49.1 FPS | 27.3 ms |
+| | threaded, `.pt`, 640 | 42.4 FPS | 126.9 ms |
+| | threaded, ONNX, 320 | 138.3 FPS | 37.2 ms |
+| `--realtime` `benchmark-20261012-172526-e682279c` | sync, `.pt`, 640 | 12.5 FPS | 34.4 ms |
+| | threaded, `.pt`, 640 | 12.5 FPS | 45.3 ms |
+| | threaded, ONNX, 320 | 12.5 FPS | 13.6 ms |
+
+The jump above 60 FPS comes from the lower resolution and ONNX, not from concurrency alone: with inference dominating each frame, threads at 640 do not raise offline throughput and their full queue raises latency. At source pace, queues stay nearly empty and latency depends mostly on inference. Throughput varies between runs. Headless, `display_fps` is `null`: these figures are annotated throughput, not physical display FPS. `detection_count` does not replace a labeled quality evaluation.
+
+Pending: a `--show` run on a physical display to measure `display_fps`, labeled quality validation, and long-duration stability. There is no native review approval or receipt.
 
 ## Glossary
 
 - **FIFO:** a queue that returns the first item it received.
-- **E2E:** time from read start to completed annotation or display.
+- **E2E:** time from read start (or, with `--realtime`, the frame's scheduled arrival) to completed annotation or display.
 - **RSS:** process resident memory.
 - **Speedup:** a case's median throughput divided by sync median throughput.
 - **`null`:** unavailable data; it does not mean zero.

@@ -1,0 +1,141 @@
+{
+  "config": {
+    "source": "/Users/williammoncada/Downloads/car-detection.mp4",
+    "weights": "yolo11n.pt",
+    "mode": "sync",
+    "imgsz": 640,
+    "device": "cpu",
+    "conf": 0.25,
+    "warmup": 2,
+    "max_frames": null,
+    "show": false,
+    "output_dir": "benchmark-results/benchmark-20261012-171741-64736e26",
+    "queue_size": 2,
+    "realtime": false
+  },
+  "versions": {
+    "python": "3.12.11",
+    "ultralytics": "8.4.176",
+    "opencv-python": "4.14.0.94",
+    "numpy": "2.5.4",
+    "psutil": "7.2.2"
+  },
+  "hardware": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "requested_device": "cpu",
+    "torch": "2.14.1",
+    "cuda_available": false,
+    "mps_available": true
+  },
+  "model": "detect",
+  "frames": 377,
+  "stop_reason": "eof",
+  "elapsed_s": 7.597677665995434,
+  "annotated_throughput_fps": 49.62042568445896,
+  "display_fps": null,
+  "source_fps": 12.5,
+  "latency_end_to_end_ms": {
+    "mean": 20.111812995339125,
+    "p50": 19.19987495057285,
+    "p95": 25.9245921857655,
+    "p99": 29.857911872677516
+  },
+  "predict_wall_ms": {
+    "mean": 19.799368928460805,
+    "p50": 18.906750017777085,
+    "p95": 25.612341612577435,
+    "p99": 29.51041199732573
+  },
+  "stage_timings_ms": {
+    "capture_ms": {
+      "mean": 0.19819008505134905,
+      "p50": 0.1806669170036912,
+      "p95": 0.25561694055795664,
+      "p99": 0.411469792015851
+    },
+    "capture_lag_ms": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    },
+    "preprocess_ms": {
+      "mean": 0.5258370949874388,
+      "p50": 0.5092499777674675,
+      "p95": 0.6532248109579086,
+      "p99": 0.7898250780999663
+    },
+    "inference_ms": {
+      "mean": 18.90872765069368,
+      "p50": 18.00479192752391,
+      "p95": 24.48814178351313,
+      "p99": 28.417287040501847
+    },
+    "postprocess_ms": {
+      "mean": 0.21376316305941628,
+      "p50": 0.18324994016438723,
+      "p95": 0.3081082599237561,
+      "p99": 0.3484449535608292
+    },
+    "predict_wall_ms": {
+      "mean": 19.799368928460805,
+      "p50": 18.906750017777085,
+      "p95": 25.612341612577435,
+      "p99": 29.51041199732573
+    },
+    "queue_wait_ms": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    },
+    "annotation_ms": {
+      "mean": 0.11228527182056038,
+      "p50": 0.09400001727044582,
+      "p95": 0.18172499258071184,
+      "p99": 0.19808621145784855
+    },
+    "display_ms": {
+      "mean": null,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "annotation_display_ms": {
+      "mean": 0.11228527182056038,
+      "p50": 0.09400001727044582,
+      "p95": 0.18172499258071184,
+      "p99": 0.19808621145784855
+    },
+    "end_to_end_ms": {
+      "mean": 20.111812995339125,
+      "p50": 19.19987495057285,
+      "p95": 25.9245921857655,
+      "p99": 29.857911872677516
+    }
+  },
+  "process_cpu_percent_semantics": "psutil process utilization sampled after each frame; first sample may be 0; null when unavailable",
+  "rss_bytes_semantics": "process resident set size sampled after each frame; null when unavailable",
+  "stability_window_s": 1,
+  "complete_stability_windows": [
+    51,
+    49,
+    49,
+    50,
+    49,
+    50,
+    49
+  ],
+  "stability_windows_exclude_trailing_partial": true,
+  "end_to_end_origin": "source-read start",
+  "timing_duration": "elapsed_s spans first measured source-read start through stop/completion; excludes model setup, warm-up, worker shutdown, and cleanup",
+  "benchmark": {
+    "case": "sync",
+    "repeat": 3,
+    "order_index": 7,
+    "imgsz": 640,
+    "mode": "sync",
+    "weights": "yolo11n.pt"
+  }
+}

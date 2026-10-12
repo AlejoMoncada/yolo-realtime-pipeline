@@ -14,7 +14,7 @@ uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Para usar pip en lugar de uv, cree un entorno virtual de Python 3.12 con `python3.12 -m venv .venv`. Después instale las dependencias con `.venv/bin/python -m pip install -r requirements.txt`. Estos comandos son instrucciones. La instalación local está incompleta porque se agotó el espacio disponible. No use `.venv` como si tuviera todas las dependencias instaladas.
+Para usar pip en lugar de uv, cree un entorno virtual de Python 3.12 con `python3.12 -m venv .venv`. Después instale las dependencias con `.venv/bin/python -m pip install -r requirements.txt`.
 
 Pesos como `yolo11n.pt` pueden descargarse durante la primera inferencia real. `--help` no importa Ultralytics ni carga pesos. Revise las [opciones de licencia de Ultralytics](https://www.ultralytics.com/license) y la [documentación oficial](https://docs.ultralytics.com/) para conocer las condiciones de licencia y las obligaciones de atribución aplicables a su uso.
 
@@ -26,6 +26,17 @@ El benchmark acepta solo un archivo de video local existente. No acepta un índi
 .venv/bin/python benchmark.py ./clip.mp4 --repeats 5 --output-dir benchmark-results
 .venv/bin/python benchmark.py ./clip.mp4 --imgsz 640 --optimized-imgsz 480 --repeats 3
 ```
+
+### Formato ONNX y ritmo de cámara
+
+`export_model.py` exporta los pesos con un tamaño de entrada fijo y nombra el archivo según la resolución, por ejemplo `yolo11n-320.onnx`. `--optimized-weights` aplica esos pesos solo al caso optimizado y exige `--optimized-imgsz` con la misma resolución de exportación:
+
+```sh
+.venv/bin/python export_model.py yolo11n.pt --imgsz 320
+.venv/bin/python benchmark.py ./clip.mp4 --device cpu --imgsz 640 --optimized-imgsz 320 --optimized-weights yolo11n-320.onnx --repeats 3
+```
+
+Sin `--realtime`, el benchmark lee el archivo tan rápido como puede: las colas permanecen llenas y `end_to_end_ms` incluye esa contrapresión. Con `--realtime` (en `benchmark.py` y `pipeline.py`), el fotograma `n` se libera en `origen + n / FPS de la fuente`, como si llegara de una cámara. Entonces `end_to_end_ms` se mide desde esa llegada programada e incluye cualquier atraso acumulado, y `capture_lag_ms` indica cuánto tarde se leyó cada fotograma respecto de su llegada. El rendimiento queda limitado por los FPS de la fuente, por lo que este modo mide latencia, no rendimiento máximo. `--realtime` requiere que la fuente informe FPS positivos.
 
 Cada ejecución escribe en un subdirectorio único `benchmark-<timestamp>-<id>/`. Calcula el hash de la fuente antes de medir y crea un subdirectorio para cada ejecución. Cada ejecución contiene `frames.csv` y `summary.json`. `comparison.json` registra:
 
@@ -52,4 +63,17 @@ Los casos sync y threaded usan los mismos pesos, dispositivo, confianza, resoluc
 
 ## Estado de validación local
 
-Las pruebas unitarias con backend falso cubren el comportamiento síncrono y paralelo. No ejecutan YOLO ni demuestran rendimiento o calidad del modelo. La instalación de dependencias terminó con `No space left on device`; `.venv` está incompleto. La inferencia real de YOLO, los dispositivos CUDA/MPS, la pantalla física y la validación con un video representativo o datos de calidad siguen pendientes hasta disponer de un entorno utilizable y datos de prueba.
+Informe de la Actividad 4: [docs/Informe_Actividad4_Grupo9_Optimizacion_TiempoReal.pdf](docs/Informe_Actividad4_Grupo9_Optimizacion_TiempoReal.pdf).
+
+Pruebas: `.venv/bin/python -m unittest discover -s tests` ejecuta 47 pruebas con backends falsos. Mediciones reales (macOS arm64, CPU, Python 3.12, Ultralytics 8.4, ONNX Runtime 1.31, `yolo11n`), con el mismo video `car-detection.mp4` (768×432, 12,5 FPS, 377 fotogramas, SHA-256 `d31e0ebf…cca34`) y 3 repeticiones por caso:
+
+| Corrida | Caso | Rendimiento mediano | E2E p95 mediano |
+|---|---|---|---|
+| Offline `benchmark-20261012-171741-64736e26` | sync, `.pt`, 640 | 49,1 FPS | 27,3 ms |
+| | threaded, `.pt`, 640 | 42,4 FPS | 126,9 ms |
+| | threaded, ONNX, 320 | 138,3 FPS | 37,2 ms |
+| `--realtime` `benchmark-20261012-172526-e682279c` | sync, `.pt`, 640 | 12,5 FPS | 34,4 ms |
+| | threaded, `.pt`, 640 | 12,5 FPS | 45,3 ms |
+| | threaded, ONNX, 320 | 12,5 FPS | 13,6 ms |
+
+El salto por encima de 60 FPS proviene de bajar la resolución y usar ONNX, no de la concurrencia sola: con la inferencia dominando cada fotograma, los hilos a 640 no aumentan el rendimiento offline y su cola llena eleva la latencia. Al ritmo de la fuente, las colas quedan casi vacías y la latencia depende sobre todo de la inferencia. El rendimiento varía entre corridas. Sin pantalla, `display_fps` es `null`: estas cifras son rendimiento anotado, no FPS físicos de visualización. `detection_count` no reemplaza una evaluación de calidad con etiquetas.

@@ -46,11 +46,11 @@ El benchmark acepta un archivo de video local existente con una cantidad positiv
 
 Cada invocación crea una carpeta de salida única. Cada ejecución incluye `frames.csv` y `summary.json`. `comparison.json` registra identidad, configuración, orden de las ejecuciones, rendimiento mediano, p95 E2E mediano, speedup y cambio porcentual. El benchmark informa los resultados observados, sin inventar valores ni declarar una mejora antes de medir.
 
-`--optimized-imgsz` agrega un caso threaded con otra resolución. Ese caso cambia más que el grado de concurrencia y no demuestra igualdad de calidad. No se ejecutó entrenamiento, exportación ONNX, cuantización, procesamiento por lotes ni una prueba que demuestre más de 60 FPS. La salida de `pipeline.py` puede sobrescribir `frames.csv` y `summary.json`; use directorios diferentes para ejecuciones independientes.
+`--optimized-imgsz` agrega un caso threaded con otra resolución. Ese caso cambia más que el grado de concurrencia y no demuestra igualdad de calidad. `--optimized-weights` permite que ese caso use otro formato, por ejemplo un ONNX exportado con `export_model.py` a la misma resolución. No se implementó entrenamiento, cuantización ni procesamiento por lotes. `--realtime` libera cada fotograma al ritmo de los FPS de la fuente para medir la latencia como con una cámara. La salida de `pipeline.py` puede sobrescribir `frames.csv` y `summary.json`; use directorios diferentes para ejecuciones independientes.
 
 ## 5. Uso básico y evidencia
 
-Los comandos siguientes muestran la instalación, la ejecución, una comparación controlada y las pruebas. La instalación local documentada no terminó por falta de espacio. No los interprete como evidencia de que todas las dependencias ya están instaladas.
+Los comandos siguientes muestran la instalación, la ejecución, una comparación controlada y las pruebas.
 
 ```sh
 uv venv --python 3.12 .venv
@@ -66,14 +66,25 @@ Las correcciones documentadas separaron `capture_ms` de los tiempos de pantalla 
 
 ## 6. Estado y siguientes pasos
 
-La instalación local se detuvo con `No space left on device`, y `.venv` está incompleto. Siguen sin verificarse los tiempos YOLO reales, las mejoras, el cuello de botella, la pantalla física, la cámara, CUDA/MPS, la calidad con etiquetas y la estabilidad prolongada. La revisión nativa también quedó pendiente: la inspección se detuvo por mantenimiento de activos administrados antes de iniciar una revisión. No existe aprobación ni recibo de revisión.
+Pruebas: `.venv/bin/python -m unittest discover -s tests` ejecuta 47 pruebas con backends falsos. Mediciones reales (macOS arm64, CPU, Python 3.12, Ultralytics 8.4, ONNX Runtime 1.31, `yolo11n`), con el mismo video `car-detection.mp4` (768×432, 12,5 FPS, 377 fotogramas, SHA-256 `d31e0ebf…cca34`) y 3 repeticiones por caso:
 
-El siguiente paso práctico es disponer de espacio suficiente e instalar los requisitos en el entorno local. Después se necesita un video representativo y, si se evaluará calidad, datos etiquetados. Ejecute casos controlados con parámetros iguales, revise los artefactos y determine qué etapa limita el flujo. Repita las pruebas necesarias para evaluar calidad y estabilidad. No presente verificaciones no disponibles como exitosas.
+| Corrida | Caso | Rendimiento mediano | E2E p95 mediano |
+|---|---|---|---|
+| Offline `benchmark-20261012-171741-64736e26` | sync, `.pt`, 640 | 49,1 FPS | 27,3 ms |
+| | threaded, `.pt`, 640 | 42,4 FPS | 126,9 ms |
+| | threaded, ONNX, 320 | 138,3 FPS | 37,2 ms |
+| `--realtime` `benchmark-20261012-172526-e682279c` | sync, `.pt`, 640 | 12,5 FPS | 34,4 ms |
+| | threaded, `.pt`, 640 | 12,5 FPS | 45,3 ms |
+| | threaded, ONNX, 320 | 12,5 FPS | 13,6 ms |
+
+El salto por encima de 60 FPS proviene de bajar la resolución y usar ONNX, no de la concurrencia sola: con la inferencia dominando cada fotograma, los hilos a 640 no aumentan el rendimiento offline y su cola llena eleva la latencia. Al ritmo de la fuente, las colas quedan casi vacías y la latencia depende sobre todo de la inferencia. El rendimiento varía entre corridas. Sin pantalla, `display_fps` es `null`: estas cifras son rendimiento anotado, no FPS físicos de visualización. `detection_count` no reemplaza una evaluación de calidad con etiquetas.
+
+Pendiente: una corrida con `--show` en pantalla física para medir `display_fps`, la validación de calidad con datos etiquetados y la estabilidad prolongada. No existe aprobación ni recibo de revisión nativa.
 
 ## Glosario
 
 - **FIFO:** cola que entrega primero el elemento que recibió primero.
-- **E2E:** tiempo desde el inicio de la lectura hasta completar la anotación o visualización.
+- **E2E:** tiempo desde el inicio de la lectura (o, con `--realtime`, desde la llegada programada del fotograma) hasta completar la anotación o visualización.
 - **RSS:** memoria residente del proceso.
 - **Speedup:** rendimiento mediano de un caso dividido por el rendimiento mediano de sync.
 - **`null`:** dato no disponible; no equivale a cero.
