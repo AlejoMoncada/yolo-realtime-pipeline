@@ -8,3 +8,6 @@
 *.pt
 __pycache__/
 results/
+data/
+runs/
+odd/
