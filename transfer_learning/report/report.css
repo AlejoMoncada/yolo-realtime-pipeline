@@ -1,0 +1,29 @@
+@page { size: Letter; margin: 15mm 16mm 14mm 16mm; }
+:root { --ink: #111; --ink-2: #4a4a46; --rule: #d9d8d3; --accent: #1f5fae; --soft: #f3f2ee; }
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+body { margin: 0; background: #fff; color: var(--ink); font: 9.6pt/1.38 "Helvetica Neue", Helvetica, Arial, sans-serif;
+       text-align: justify; hyphens: auto; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+header { border-bottom: 2px solid var(--accent); padding-bottom: 5px; margin-bottom: 7px; text-align: left; }
+header .inst { font-size: 8pt; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+header h1 { font-size: 13.5pt; line-height: 1.2; margin: 3px 0 4px; color: var(--ink); }
+header .meta { font-size: 8.4pt; color: var(--ink-2); }
+h2 { font-size: 10.6pt; color: var(--accent); margin: 9px 0 3px; break-after: avoid; }
+h3 { font-size: 9.6pt; margin: 6px 0 2px; break-after: avoid; }
+p { margin: 0 0 5px; }
+ul { margin: 0 0 5px; padding-left: 15px; }
+li { margin-bottom: 2px; }
+code { font: 8.4pt Menlo, monospace; background: var(--soft); padding: 0 2px; border-radius: 2px; }
+table { border-collapse: collapse; width: 100%; margin: 3px 0 6px; font-size: 8.2pt; text-align: left;
+        font-variant-numeric: tabular-nums; break-inside: avoid; }
+th, td { border-bottom: 1px solid var(--rule); padding: 2px 5px; vertical-align: top; }
+th { hyphens: none; background: var(--soft); font-weight: 600; border-bottom: 1px solid #bdbcb6; }
+td.n, th.n { text-align: right; }
+tr.hl td { font-weight: 600; background: #eaf1fb; }
+figure { margin: 4px 0 6px; break-inside: avoid; }
+figure img { width: 100%; display: block; }
+figcaption, .cap { font-size: 8pt; color: var(--ink-2); margin-top: 2px; text-align: left; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.box { background: var(--soft); border-left: 3px solid var(--accent); padding: 4px 8px; margin: 4px 0 6px; }
+.refs { font-size: 7.8pt; color: var(--ink-2); text-align: left; }
+.refs li { margin-bottom: 1px; }

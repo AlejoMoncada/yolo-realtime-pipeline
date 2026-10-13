@@ -18,11 +18,13 @@ LABELS = {
     "zeroshot": "COCO sin ajuste",
     "scratch": "Desde cero",
     "stage1": "Etapa 1 (backbone congelado)",
-    "stage2": "Etapa 2 (fine-tuning, propuesto)",
+    "stage2": "Dos etapas 10+30 (propuesto)",
     "full_ft": "Fine-tuning en una etapa",
 }
 # Fixed categorical order (validated: adjacent CVD dE >= 9.1, normal-vision >= 19.6 on #fcfcfb).
 COLORS = dict(zip(MODELS, ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]))
+CLASS_ES = {"person": "persona", "bicycle": "bicicleta", "car": "carro", "motorcycle": "moto", "bus": "bus",
+            "truck": "camión", "background": "fondo"}
 INK, INK_2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
 
 plt.rcParams.update({
@@ -90,7 +92,7 @@ def plot_training_curves(out: Path, project: Path = PROJECT) -> Path:
             series[name] = curve
     panels = ((axes[0], ("train/cls_loss", "val/cls_loss"), "Pérdida de clasificación (BCE)"),
               (axes[1], ("train/box_loss", "val/box_loss"), "Pérdida de caja (CIoU)"),
-              (axes[2], ("metrics/precision(B)", "metrics/mAP50(B)"), "Validación: precisión y mAP@50"))
+              (axes[2], ("metrics/precision(B)", "metrics/mAP50(B)"), "Val: precisión y mAP@50"))
     for ax, (key_a, key_b), title in panels:
         for name, curve in series.items():
             ax.plot(curve["epoch"], curve[key_a], color=COLORS[name], linewidth=1.4, linestyle="--")
@@ -142,7 +144,7 @@ def plot_per_class(out: Path, names: tuple[str, ...] = ("zeroshot", "scratch", "
         bars = ax.bar(x + (i - (len(evals) - 1) / 2) * width, [ev["per_class"][c]["map50"] * 100 for c in classes],
                       width - 0.03, color=COLORS[name], label=LABELS[name])
         ax.bar_label(bars, fmt="%.0f", fontsize=7, color=INK, padding=1)
-    ax.set_xticks(x, classes)
+    ax.set_xticks(x, [CLASS_ES.get(c, c) for c in classes])
     ax.set_ylabel("AP@50 (%)")
     ax.set_title("AP@50 por clase en test", loc="left")
     ax.grid(axis="x", visible=False)
@@ -173,7 +175,7 @@ def plot_confusion(out: Path, names: tuple[str, ...] = ("zeroshot", "stage2"), p
             if value >= 0.005:
                 ax.text(c, r, f"{value:.2f}", ha="center", va="center", fontsize=6.5,
                         color="white" if value > 0.55 else INK)
-        ticks = [lab if lab != "background" else "fondo" for lab in labels]
+        ticks = [CLASS_ES.get(lab, lab) for lab in labels]
         ax.set_xticks(range(len(labels)), ticks, rotation=45, ha="right", fontsize=7.5)
         ax.set_yticks(range(len(labels)), ticks, fontsize=7.5)
         ax.set_xlabel("clase real")
@@ -182,4 +184,36 @@ def plot_confusion(out: Path, names: tuple[str, ...] = ("zeroshot", "stage2"), p
     fig.tight_layout()
     fig.savefig(out, dpi=200)
     plt.close(fig)
+    return out
+
+
+def render_false_positives(weights: str, out: Path, images_dir: Path = Path("data/visdrone6/images/test"),
+                           stride: int = 53, candidates: int = 30, keep: int = 2, device: str = "mps") -> Path:
+    """Draw ground truth (green) and unmatched predictions at conf 0.25 / IoU 0.45 (red) on the test images with
+    the most false positives, side by side, so they can be inspected by eye."""
+    import cv2
+    import torch
+    from ultralytics import YOLO
+    from ultralytics.utils.metrics import box_iou
+
+    model = YOLO(weights)
+    scored = []
+    for path in sorted(images_dir.glob("*.jpg"))[::stride][:candidates]:
+        image = cv2.imread(str(path))
+        height, width = image.shape[:2]
+        gt = []
+        for line in (path.parent.parent.parent / "labels" / path.parent.name / f"{path.stem}.txt").read_text().splitlines():
+            _, x, y, w, h = map(float, line.split())
+            gt.append([(x - w / 2) * width, (y - h / 2) * height, (x + w / 2) * width, (y + h / 2) * height])
+        boxes = model.predict(str(path), imgsz=640, conf=0.25, device=device, verbose=False)[0].boxes.xyxy.cpu()
+        fp = boxes[box_iou(boxes, torch.tensor(gt)).max(1).values < 0.45] if len(gt) and len(boxes) else boxes
+        scored.append((len(fp), path, image, gt, fp))
+    panels = []
+    for _, path, image, gt, fp in sorted(scored, key=lambda t: -t[0])[:keep]:
+        for color, thickness, group in (((0, 200, 0), 1, gt), ((0, 0, 255), 2, fp.tolist())):
+            for x0, y0, x1, y1 in group:
+                cv2.rectangle(image, (int(x0), int(y0)), (int(x1), int(y1)), color, thickness)
+        panels.append(cv2.resize(image, (round(image.shape[1] * 576 / image.shape[0]), 576)))
+    gap = np.full((576, 8, 3), 255, np.uint8)
+    cv2.imwrite(str(out), np.hstack([p for panel in panels for p in (panel, gap)][:-1]), [cv2.IMWRITE_JPEG_QUALITY, 85])
     return out

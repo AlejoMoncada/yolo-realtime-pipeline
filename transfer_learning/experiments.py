@@ -126,7 +126,8 @@ def split_gap(names: tuple[str, ...], device: str, batch: int, imgsz: int) -> di
     """mAP/precision/recall of each model's best weights on train, val and test (overfitting check)."""
     from ultralytics import YOLO
 
-    gap: dict[str, Any] = {}
+    path = PROJECT / "eval" / "split_gap.json"
+    gap: dict[str, Any] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     for name in names:
         model = YOLO(str(PROJECT / name / "weights" / "best.pt"))
         gap[name] = {}
@@ -135,7 +136,7 @@ def split_gap(names: tuple[str, ...], device: str, batch: int, imgsz: int) -> di
                           plots=False, project=str(PROJECT / "eval"), name="_gap", exist_ok=True, verbose=False)
             gap[name][split] = {"map50": float(m.box.map50), "map50_95": float(m.box.map), "precision": float(m.box.mp),
                                 "recall": float(m.box.mr)}
-    (PROJECT / "eval" / "split_gap.json").write_text(json.dumps(gap, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(gap, indent=2), encoding="utf-8")
     shutil.rmtree(PROJECT / "eval" / "_gap", ignore_errors=True)
     return gap
 
