@@ -7,6 +7,7 @@ Runs, all on the same data, image size, batch, seed and device:
 * ``stage1``    - COCO weights, backbone frozen (modules 0-10), new 6-class head trained.
 * ``stage2``    - starts from ``stage1`` best weights, everything unfrozen, lower LR, cosine decay.
 * ``full_ft``   - ablation: COCO weights, single-stage full fine-tune with the same epoch budget.
+* ``stage2_lr1e3`` / ``stage2_freeze6`` - stage-2 ablations: LR 1e-3 instead of 2e-4; modules 0-5 kept frozen.
 
 Usage:
     .venv/bin/python -m transfer_learning.experiments all --stage1-epochs 10 --stage2-epochs 30
@@ -63,12 +64,23 @@ def train_stage1(epochs: int, base: dict[str, Any]) -> dict[str, Any]:
     return _train("yolo11n.pt", "stage1", epochs, freeze=BACKBONE_LAYERS, lr0=1e-3, warmup_epochs=1, **base)
 
 
-def train_stage2(epochs: int, base: dict[str, Any]) -> dict[str, Any]:
+def train_stage2(epochs: int, base: dict[str, Any], name: str = "stage2", lr0: float = 2e-4,
+                 freeze: int = 0) -> dict[str, Any]:
     stage1 = PROJECT / "stage1" / "weights" / "best.pt"
     if not stage1.exists():
         raise FileNotFoundError(f"Stage 1 weights not found: {stage1}")
-    return _train(str(stage1), "stage2", epochs, freeze=0, lr0=2e-4, lrf=0.05, cos_lr=True,
+    return _train(str(stage1), name, epochs, freeze=freeze, lr0=lr0, lrf=0.05, cos_lr=True,
                   warmup_epochs=0, **base)
+
+
+def train_stage2_lr1e3(epochs: int, base: dict[str, Any]) -> dict[str, Any]:
+    """Ablation: same stage 2, LR 5x higher (1e-3), to justify the chosen LR with curves."""
+    return train_stage2(epochs, base, name="stage2_lr1e3", lr0=1e-3)
+
+
+def train_stage2_freeze6(epochs: int, base: dict[str, Any]) -> dict[str, Any]:
+    """Ablation: same stage 2, but modules 0-5 stay frozen (only the last backbone stages 6-10 are tuned)."""
+    return train_stage2(epochs, base, name="stage2_freeze6", freeze=6)
 
 
 def train_full_ft(epochs: int, base: dict[str, Any]) -> dict[str, Any]:
@@ -166,7 +178,8 @@ def module_drift(weights_a: str, weights_b: str) -> list[dict[str, Any]]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("step", choices=["all", "zeroshot", "scratch", "stage1", "stage2", "full_ft", "eval"])
+    parser.add_argument("step", choices=["all", "zeroshot", "scratch", "stage1", "stage2", "full_ft", "stage2_lr1e3",
+                                            "stage2_freeze6", "eval"])
     parser.add_argument("--stage1-epochs", type=int, default=10)
     parser.add_argument("--stage2-epochs", type=int, default=30)
     parser.add_argument("--device", default="mps")
@@ -190,7 +203,9 @@ def main(argv: list[str] | None = None) -> int:
             evaluate("yolo11n.pt", "zeroshot", zeroshot=True, **ev)
         else:
             trainer = {"scratch": (train_scratch, total), "stage1": (train_stage1, args.stage1_epochs),
-                       "stage2": (train_stage2, args.stage2_epochs), "full_ft": (train_full_ft, total)}[step]
+                       "stage2": (train_stage2, args.stage2_epochs), "full_ft": (train_full_ft, total),
+                       "stage2_lr1e3": (train_stage2_lr1e3, args.stage2_epochs),
+                       "stage2_freeze6": (train_stage2_freeze6, args.stage2_epochs)}[step]
             trainer[0](trainer[1], base)
             evaluate(str(PROJECT / step / "weights" / "best.pt"), step, **ev)
     shutil.rmtree(Path("runs/act3/eval/_tmp"), ignore_errors=True)

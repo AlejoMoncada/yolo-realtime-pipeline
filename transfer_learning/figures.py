@@ -20,9 +20,14 @@ LABELS = {
     "stage1": "Etapa 1 (backbone congelado)",
     "stage2": "Dos etapas 10+30 (propuesto)",
     "full_ft": "Fine-tuning en una etapa",
+    "stage2_lr1e3": "Etapa 2 con LR 1e-3",
+    "stage2_freeze6": "Etapa 2 congelando 0-5",
 }
 # Fixed categorical order (validated: adjacent CVD dE >= 9.1, normal-vision >= 19.6 on #fcfcfb).
 COLORS = dict(zip(MODELS, ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]))
+# Stage-2 ablations reuse slots 6-7; the trio with stage2 validates all-pairs (CVD dE >= 16.2, normal >= 30.3).
+COLORS.update({"stage2_lr1e3": "#008300", "stage2_freeze6": "#6250d6"})
+ABLATIONS = ["stage2", "stage2_lr1e3", "stage2_freeze6"]
 CLASS_ES = {"person": "persona", "bicycle": "bicicleta", "car": "carro", "motorcycle": "moto", "bus": "bus",
             "truck": "camión", "background": "fondo"}
 INK, INK_2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
@@ -216,4 +221,28 @@ def render_false_positives(weights: str, out: Path, images_dir: Path = Path("dat
         panels.append(cv2.resize(image, (round(image.shape[1] * 576 / image.shape[0]), 576)))
     gap = np.full((576, 8, 3), 255, np.uint8)
     cv2.imwrite(str(out), np.hstack([p for panel in panels for p in (panel, gap)][:-1]), [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return out
+
+
+def plot_ablation(out: Path, project: Path = PROJECT) -> Path:
+    """Stage-2 variants on the same epochs: validation mAP@50 and validation box loss, end values labeled."""
+    fig, axes = plt.subplots(1, 2, figsize=(7.4, 2.4))
+    names = {"stage2": "LR 2e-4, todo descongelado (elegido)", "stage2_lr1e3": "LR 1e-3, todo descongelado",
+             "stage2_freeze6": "LR 2e-4, módulos 0-5 congelados"}
+    for ax, key, title, fmt in ((axes[0], "metrics/mAP50(B)", "Val mAP@50 (Etapa 2)", "{:.1%}"),
+                                (axes[1], "val/box_loss", "Val pérdida de caja (Etapa 2)", "{:.2f}")):
+        for name in ABLATIONS:
+            curve = load_curve(name, project)
+            if curve is None:
+                continue
+            ax.plot(curve["epoch"], curve[key], color=COLORS[name], linewidth=2, label=names[name])
+            ax.annotate(fmt.format(curve[key][-1]), (curve["epoch"][-1], curve[key][-1]), xytext=(3, 0),
+                        textcoords="offset points", va="center", fontsize=7, color=INK)
+        ax.set_title(title, loc="left", fontsize=8.5)
+        ax.set_xlabel("época de la Etapa 2")
+        ax.margins(x=0.12)
+    axes[0].legend(fontsize=7, loc="lower right")
+    fig.tight_layout()
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
     return out

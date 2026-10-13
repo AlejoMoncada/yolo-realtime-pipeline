@@ -93,6 +93,43 @@ def body(ctx: dict, pct: Callable, num: Callable, thousands: Callable) -> str:
         baselines_txt += (f" El esquema en dos etapas {verdict} el fine-tuning en una sola etapa "
                           f"({pct(s2['map50'])} % contra {pct(ff['map50'])} %; diferencia de {pct(diff)} pp).")
 
+    ablation_html = ""
+    abl = [(k, ev.get(k), ctx["curves"].get(k)) for k in ("stage2", "stage2_lr1e3", "stage2_freeze6")]
+    if all(e is not None for _, e, _ in abl):
+        lr, fz = ev["stage2_lr1e3"], ev["stage2_freeze6"]
+        c_lr = ctx["curves"]["stage2_lr1e3"]
+        trows = "".join(
+            f"<tr class={'hl' if k == 'stage2' else ''}><td>{label}</td><td class=n>{pct(e['map50'])}</td>"
+            f"<td class=n>{pct(e['map50_95'])}</td><td class=n>{pct(c['metrics/mAP50(B)'].max())}</td>"
+            f"<td class=n>{num(float(c['val/box_loss'][-1]), 3)}</td></tr>"
+            for (k, e, c), label in zip(abl, ("LR 2e-4, todo descongelado (elegido)", "LR 1e-3, todo descongelado",
+                                              "LR 2e-4, módulos 0-5 congelados")))
+        d_lr, d_fz = s2["map50"] - lr["map50"], s2["map50"] - fz["map50"]
+        lr_txt = (f"Con un LR 5 veces mayor (1e-3), el modelo queda {pct(abs(d_lr))} pp de mAP@50 "
+                  f"{'por debajo' if d_lr > 0 else 'por encima'} en test")
+        lr_why = (": un paso grande desordena los filtros preentrenados al principio de la Etapa 2, y lo que se recupera después no compensa lo perdido."
+                  if d_lr > 0.005 else
+                  "; la diferencia es pequeña, así que en este rango la elección del LR no es crítica y se prefiere el menor por estabilidad.")
+        fz_txt = (f"Congelar también los módulos 0-5 y ajustar solo las últimas etapas del backbone (6-10) deja el modelo "
+                  f"{pct(abs(d_fz))} pp {'por debajo' if d_fz > 0 else 'por encima'}")
+        fz_why = (". Las primeras capas también necesitan adaptarse al dominio aéreo, lo que justifica descongelar desde la capa 0."
+                  if d_fz > 0.005 else
+                  ". Las primeras capas aportan poco al adaptarlas, así que descongelar solo 6-10 sería una alternativa más barata con un resultado equivalente.")
+        ablation_html = f"""<h3>Justificación empírica del LR y de la capa desde la que se hace el fine-tuning</h3>
+<p>Se repitió la Etapa 2, desde los mismos pesos de la Etapa 1 y con las mismas 30 épocas, cambiando una sola variable a la vez. {lr_txt}{lr_why} {fz_txt}{fz_why}</p>
+<div class=two><figure><img src="figures/ablation.png"><figcaption>Figura 2. Curvas de validación de las variantes de la Etapa 2.</figcaption></figure>
+<table><tr><th>Variante de la Etapa 2</th><th class=n>mAP@50 test</th><th class=n>mAP@50-95 test</th><th class=n>máx. mAP@50 val</th><th class=n>pérdida de caja val final</th></tr>{{trows}}</table></div>""".replace("{trows}", trows)
+
+    scratch_li = ""
+    if sc is not None:
+        gains = {c: (s2["per_class"][c]["map50"], sc["per_class"][c]["map50"]) for c in s2["per_class"]}
+        ratio = sorted(((a / b if b else float("inf"), c) for c, (a, b) in gains.items()), reverse=True)
+        scratch_li = (f"<li><b>El preentrenamiento importa más en las clases escasas.</b> Contra el entrenamiento desde cero con el mismo presupuesto, "
+                      f"el modelo propuesto mejora en las 6 clases. Las ganancias relativas más grandes son en <i>{CLASS_ES[ratio[0][1]]}</i> "
+                      f"(×{rel(*gains[ratio[0][1]])}) y <i>{CLASS_ES[ratio[1][1]]}</i> (×{rel(*gains[ratio[1][1]])}), clases con pocos ejemplos en train, "
+                      f"y la menor es en <i>{CLASS_ES[ratio[-1][1]]}</i> (×{rel(*gains[ratio[-1][1]])}), la clase más abundante. Con pocos datos, "
+                      "las representaciones aprendidas en COCO sustituyen ejemplos que el modelo no tiene.</li>")
+
     return f"""
 <header>
   <div class=inst>Universidad de La Sabana · Maestría en Inteligencia Artificial · Técnicas Avanzadas de Modelado en IA</div>
@@ -125,28 +162,33 @@ Todas las cifras de este informe salen de los artefactos de entrenamiento del re
 <tr><td>Capas entrenables</td><td>11-23</td><td>0-23</td><td>Congelar el backbone (0-10) estabiliza la cabeza.</td></tr>
 <tr><td colspan=4>Comunes: imgsz 640, batch 16, semilla 0, <code>deterministic=True</code>, 2.000 imágenes de train, el mejor checkpoint se elige por mAP@50-95 en val, sin early stopping (paciencia igual al número de épocas, para que todas las corridas tengan el mismo presupuesto).</td></tr></table>
 
+<div class=box><b>Carga explícita de pesos y congelamiento</b> (<code>transfer_learning/experiments.py</code>):<br>
+<code>YOLO("yolo11n.pt").train(data="visdrone6.yaml", freeze=11, epochs=10, optimizer="AdamW", lr0=1e-3, seed=0, ...)</code> → Etapa 1<br>
+<code>YOLO("runs/act3/stage1/weights/best.pt").train(freeze=0, epochs=30, lr0=2e-4, lrf=0.05, cos_lr=True, warmup_epochs=0, ...)</code> → Etapa 2<br>
+Ultralytics transfiere al modelo de 6 clases los tensores de <code>yolo11n.pt</code> que tienen la misma forma (todo menos las convoluciones finales de clase) y congela los parámetros cuyo nombre empieza con <code>model.0.</code> a <code>model.10.</code>.</div>
 <h2>3. Monitoreo del entrenamiento</h2>
 <figure><img src="figures/curves.png"><figcaption>Figura 1. Curvas por época: pérdidas de entrenamiento (discontinuas) y validación (continuas); precisión (discontinua) y mAP@50 (continua) en validación. La línea punteada marca el descongelamiento del backbone en la época 10.</figcaption></figure>
 <p>En la Etapa 1, el mAP@50 en val sube de {pct(c1['metrics/mAP50(B)'][0])} % a {pct(c1['metrics/mAP50(B)'][-1])} % con el backbone fijo. Al descongelar, la curva sigue subiendo hasta {pct(c2['metrics/mAP50(B)'].max())} % (mejor época por mAP@50-95: {best2 + len(c1['epoch'])}), lo que confirma que adaptar el backbone aporta. Las pérdidas de validación bajan en paralelo a las de entrenamiento y no divergen. El salto de la pérdida de <i>entrenamiento</i> en la época 11 no es inestabilidad: la Etapa 1 corrió sin mosaic y la Etapa 2 lo reactiva, lo que vuelve más difíciles las imágenes de train. La pérdida de validación, que no usa aumentación, no salta. En la época {len(c1['epoch']) + 21} (la 21 de la Etapa 2) se apaga el mosaic: hay una caída puntual del mAP en val y la pérdida de entrenamiento cambia de escala, porque las imágenes dejan de ser collages de cuatro escenas. El modelo se recupera en 1-2 épocas. Con el LR casi nulo del final, el mAP se estabiliza: más épocas aportarían poco con este presupuesto de datos.</p>
 <table><tr><th>Modelo (mejores pesos)</th><th class=n>mAP@50 train</th><th class=n>mAP@50 val</th><th class=n>mAP@50 test</th></tr>{gap_rows}</table>
 <p class=cap>Tabla de brecha: los mismos pesos se evalúan sin aumentación en los tres splits. Que el desempeño en train sea mayor es esperable con 2.000 imágenes. Test-dev viene de secuencias y condiciones distintas a las de val; la caída de val a test mide cuánto generaliza cada modelo a escenas nuevas.</p>
 
+{ablation_html}
 <h2>4. Evaluación en el conjunto de prueba</h2>
 <table><tr><th>Modelo</th><th class=n>mAP@50 (%)</th><th class=n>mAP@50-95 (%)</th><th class=n>Precisión (%)</th><th class=n>Recall (%)</th><th class=n>Épocas</th><th class=n>Entrenamiento (min, equipo)</th></tr>{comp}</table>
-<p class=cap>Métricas macro sobre las 6 clases, con NMS IoU 0,7 y conf 0,001 para mAP. Precisión y recall están en el punto de máximo F1. Todas las corridas usan el mismo dataset, semilla, imgsz, batch, optimizador y presupuesto de épocas; los tiempos solo son comparables dentro del mismo equipo.</p>
+<p class=cap>Métricas macro sobre las 6 clases, con NMS IoU 0,7 y conf 0,001 para mAP. Precisión y recall están en el punto de máximo F1. Todas las corridas usan el mismo dataset, semilla, imgsz, batch, optimizador y presupuesto de épocas; los tiempos solo son comparables dentro del mismo equipo. En detección no se reporta <i>accuracy</i>: no existen verdaderos negativos contables (cada píxel de fondo sería uno), así que el equivalente multiclase son la precisión, el recall y el F1 por clase, con el mAP como resumen independiente del umbral.</p>
 <table><tr><th>Clase (modelo propuesto)</th><th class=n>Precisión</th><th class=n>Recall</th><th class=n>F1</th><th class=n>AP@50</th><th class=n>AP@50-95</th><th class=n>AP@50 COCO sin ajuste</th><th class=n>Instancias</th></tr>{per_class}</table>
-<figure><img src="figures/confusion.png"><figcaption>Figura 2. Matrices de confusión en test (conf 0,25, IoU de emparejamiento 0,45), normalizadas por columna: cada columna es una clase real y suma 1. La fila "fondo" son objetos no detectados (falsos negativos); la columna "fondo" reparte los falsos positivos según la clase predicha.</figcaption></figure>
-<figure><img src="figures/false_positives.jpg"><figcaption>Figura 3. Imágenes de test con más falsos positivos del modelo propuesto. Verde: verdad anotada. Rojo: predicciones (conf ≥ 0,25) sin caja anotada con IoU ≥ 0,45. Casi todas son vehículos y personas reales sin anotar.</figcaption></figure>
+<figure><img src="figures/confusion.png"><figcaption>Figura 3. Matrices de confusión en test (conf 0,25, IoU de emparejamiento 0,45), normalizadas por columna: cada columna es una clase real y suma 1. La fila "fondo" son objetos no detectados (falsos negativos); la columna "fondo" reparte los falsos positivos según la clase predicha.</figcaption></figure>
+<figure><img src="figures/false_positives.jpg"><figcaption>Figura 4. Imágenes de test con más falsos positivos del modelo propuesto. Verde: verdad anotada. Rojo: predicciones (conf ≥ 0,25) sin caja anotada con IoU ≥ 0,45. Casi todas son vehículos y personas reales sin anotar.</figcaption></figure>
 <p><b>Errores que se repiten.</b> (1) <b>Predomina la falta de detección, y depende del tamaño.</b> La mayor parte del error no es confundir una clase con otra: es no detectar el objeto (fila <i>fondo</i>). Se pierde el {pct(miss['person'], 0)} % de las personas, el {pct(miss['bicycle'], 0)} % de las bicicletas y el {pct(miss['motorcycle'], 0)} % de las motos, contra el {pct(miss['car'], 0)} % de los carros y el {pct(miss['bus'], 0)} % de los buses. El orden coincide con el tamaño aparente: a la entrada de 640 px, la mediana de una persona mide {num(sizes['person']['median_px'], 1)} px (√área) y el {pct(sizes['person']['pct_lt_16px'], 0)} % mide menos de 16 px; un bus mide {num(sizes['bus']['median_px'], 1)} px. Con objetos de 5 a 9 px, el mapa de mayor resolución de YOLO11n (P3, stride 8) asigna menos de una celda por objeto.
 (2) <b>Confusiones entre vehículos grandes:</b> {thousands(M('car','truck'))} camiones se predicen como carro ({pct(M('car','truck') / cm['true_total']['truck'], 0)} % de los camiones) y {thousands(M('truck','car'))} carros como camión. También {thousands(M('car','bus'))} buses salen como carro y {thousands(M('truck','bus'))} como camión. Desde arriba, la diferencia entre una camioneta, un furgón (<i>van</i>, que se agrupó como carro) y un camión pequeño es casi solo de largo. Esta frontera la definió el agrupamiento de clases; no es un defecto del aprendizaje.
 (3) <b>Vehículos de dos ruedas y personas:</b> {pct(M('motorcycle','bicycle') / cm['true_total']['bicycle'], 0)} % de las bicicletas se predicen como moto, {thousands(M('motorcycle','person'))} personas como moto y {thousands(M('person','motorcycle'))} motos como persona. VisDrone anota al conductor (<i>people</i>, que aquí es persona) y a su vehículo (<i>motor</i>) como dos cajas casi superpuestas. Desde arriba, el conductor tapa casi todo el vehículo, así que el modelo tiene que decidir cuál de las dos cajas es.
-(4) <b>Falsos positivos sobre fondo:</b> {thousands(fp_total)} detecciones sin objeto real, sobre todo de {CLASS_ES[fp_top[0][0]]} ({thousands(fp_top[0][1])}) y {CLASS_ES[fp_top[1][0]]} ({thousands(fp_top[1][1])}). En la revisión visual de las imágenes de test con más falsos positivos (notebook, sección 4), la mayoría son <b>objetos reales sin anotar</b>: carros en vías lejanas del fondo y personas dentro de multitudes nocturnas. El resto cae sobre objetos con silueta parecida, como papeleras, troncos o postes. Por eso la precisión real es mayor que la medida, y el error de verdad es el recall de objetos pequeños.
+(4) <b>Falsos positivos sobre fondo:</b> {thousands(fp_total)} detecciones sin objeto real, sobre todo de {CLASS_ES[fp_top[0][0]]} ({thousands(fp_top[0][1])}) y {CLASS_ES[fp_top[1][0]]} ({thousands(fp_top[1][1])}). En la revisión visual de las imágenes de test con más falsos positivos (Figura 4), la mayoría son <b>objetos reales sin anotar</b>: carros en vías lejanas del fondo y personas dentro de multitudes nocturnas. El resto cae sobre objetos con silueta parecida, como papeleras, troncos o postes. Por eso la precisión real es mayor que la medida, y el error de verdad es el recall de objetos pequeños.
 La mejor clase en AP@50 es <i>{CLASS_ES[best_cls[0]]}</i> ({num(best_cls[1]['map50'])}), la que tiene más instancias y objetos más grandes, y la peor es <i>{CLASS_ES[worst_cls[0]]}</i> ({num(worst_cls[1]['map50'])}), pequeña y escasa.</p>
 
 <h2>5. Conclusiones, limitaciones y reproducibilidad</h2>
 <ul>
 <li><b>La transferencia funciona, pero requiere fine-tuning.</b> Congelar el backbone multiplica el mAP@50 del modelo COCO por {rel(s1['map50'], zs['map50'])} ({pct(s1['map50'])} % en test). Descongelarlo lo lleva a {pct(s2['map50'])} %. El cambio de dominio llega hasta los filtros de bajo nivel, así que la cabeza sola no alcanza.</li>
-<li><b>El cuello de botella es la escala, no la semántica.</b> La matriz muestra más falsos negativos que confusiones entre clases. La mejora más directa sería entrenar a mayor resolución (imgsz 960-1280) o con <i>tiling</i> (SAHI), agregar la cabeza P2 (stride 4) para objetos pequeños y usar el train completo (6.471 imágenes).</li>
+{scratch_li}<li><b>El cuello de botella es la escala, no la semántica.</b> La matriz muestra más falsos negativos que confusiones entre clases. La mejora más directa sería entrenar a mayor resolución (imgsz 960-1280) o con <i>tiling</i> (SAHI), agregar la cabeza P2 (stride 4) para objetos pequeños y usar el train completo (6.471 imágenes).</li>
 <li><b>Limitaciones.</b> Se usó un subconjunto de train y una sola semilla, sin intervalos de confianza. En MPS hay operaciones no deterministas aunque <code>deterministic=True</code> esté activo. Los triciclos quedan fuera del problema.</li>
 <li><b>Reproducibilidad.</b> Python {v['python']}, PyTorch {v['torch']}, Ultralytics {v['ultralytics']}, semilla 0. Equipos: {v['machine']}{hw.get('_note', '')}. Para regenerar todo: <code>python -m transfer_learning.prepare_data --download</code>, <code>python -m transfer_learning.experiments all</code>, el notebook <code>transfer_learning/act3_transfer_learning.ipynb</code> y <code>python -m transfer_learning.report.build_report</code>.</li>
 </ul>

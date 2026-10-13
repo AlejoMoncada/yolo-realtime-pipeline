@@ -38,10 +38,10 @@ def collect() -> dict:
     ctx = {
         "stats": json.loads(Path("data/visdrone6/stats.json").read_text()),
         "rows": fg.comparison_rows(),
-        "evals": {n: fg.load_eval(n) for n in fg.MODELS},
+        "evals": {n: fg.load_eval(n) for n in fg.MODELS + fg.ABLATIONS[1:]},
         "gap": json.loads((ex.PROJECT / "eval" / "split_gap.json").read_text()),
         "drift": json.loads((ex.PROJECT / "eval" / "module_drift.json").read_text()),
-        "curves": {n: fg.load_curve(n) for n in ("stage1", "stage2", "scratch", "full_ft")},
+        "curves": {n: fg.load_curve(n) for n in ("stage1", "stage2", "scratch", "full_ft") + tuple(fg.ABLATIONS[1:])},
         "sizes": json.loads((ex.PROJECT / "eval" / "object_sizes_test.json").read_text()),
         "info": {n: fg.load_train_info(n) for n in ("stage1", "stage2", "scratch", "full_ft")},
         "figs": {
@@ -49,6 +49,7 @@ def collect() -> dict:
             "comparison": fg.plot_model_comparison(FIG / "comparison.png"),
             "per_class": fg.plot_per_class(FIG / "per_class.png"),
             "confusion": fg.plot_confusion(FIG / "confusion.png"),
+            "ablation": fg.plot_ablation(FIG / "ablation.png"),
         },
     }
     import torch
