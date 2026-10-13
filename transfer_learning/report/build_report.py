@@ -57,6 +57,14 @@ def collect() -> dict:
 
     ctx["versions"] = {"python": platform.python_version(), "torch": torch.__version__,
                        "ultralytics": ultralytics.__version__, "machine": "Apple M4 (MPS), 16 GB RAM, macOS"}
+    # Baselines trained on the second machine arrive as test metrics only (no train_info/results.csv).
+    budget = sum((ctx["info"][n] or {}).get("epochs", 0) for n in ("stage1", "stage2"))
+    remote = [r for r in ctx["rows"] if r["key"] in ("scratch", "full_ft") and not ctx["info"].get(r["key"])]
+    for r in remote:
+        r["epochs"] = budget
+    ctx["hardware"] = {"_note": ("; la línea base desde cero se entrenó con el mismo código, datos, semilla y configuración en una "
+                                 "NVIDIA GTX 1660 Super (PyTorch 2.14.1+cu126), así que su mAP es comparable pero su tiempo no")
+                       if remote else ""}
     cm = ctx["evals"]["stage2"]["confusion_matrix"]
     matrix = np.array(cm["matrix"])
     labels = cm["labels"]

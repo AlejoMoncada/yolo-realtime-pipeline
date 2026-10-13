@@ -27,3 +27,6 @@ figcaption, .cap { font-size: 8pt; color: var(--ink-2); margin-top: 2px; text-al
 .box { background: var(--soft); border-left: 3px solid var(--accent); padding: 4px 8px; margin: 4px 0 6px; }
 .refs { font-size: 7.8pt; color: var(--ink-2); text-align: left; }
 .refs li { margin-bottom: 1px; }
+figure.cm img { width: 82%; margin: 0 auto; }
+ul { text-align: left; }
+ul.errs li { text-align: justify; }
