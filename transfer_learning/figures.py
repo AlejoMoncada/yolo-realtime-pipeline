@@ -82,7 +82,7 @@ def comparison_rows(project: Path = PROJECT) -> list[dict[str, Any]]:
     return rows
 
 
-def plot_training_curves(out: Path, project: Path = PROJECT) -> Path:
+def plot_training_curves(out: Path, project: Path = PROJECT, extra: tuple[str, ...] = ("full_ft",)) -> Path:
     """Train (dashed) vs validation (solid) losses, plus validation precision and mAP@50, per epoch."""
     fig, axes = plt.subplots(1, 3, figsize=(7.4, 2.6))
     stage1, stage2 = load_curve("stage1", project), load_curve("stage2", project)
@@ -91,7 +91,7 @@ def plot_training_curves(out: Path, project: Path = PROJECT) -> Path:
         offset = stage1["epoch"][-1]
         series["stage2"] = {k: np.concatenate([stage1[k], stage2[k]]) for k in stage1 if k in stage2}
         series["stage2"]["epoch"] = np.concatenate([stage1["epoch"], stage2["epoch"] + offset])
-    for name in ("scratch", "full_ft"):
+    for name in extra:
         curve = load_curve(name, project)
         if curve is not None:
             series[name] = curve
@@ -111,9 +111,9 @@ def plot_training_curves(out: Path, project: Path = PROJECT) -> Path:
                       label="Dos etapas (propuesto)" if n == "stage2" else LABELS[n]) for n in series]
     handles += [Line2D([], [], color=INK_2, linestyle="--", label="train / precisión"),
                 Line2D([], [], color=INK_2, label="val / mAP@50"),
-                Line2D([], [], color=INK_2, linestyle=":", label="descongelado (ép. 10)")]
-    fig.legend(handles=handles, loc="lower center", ncol=6, fontsize=7, bbox_to_anchor=(0.5, -0.01))
-    fig.tight_layout(rect=(0, 0.08, 1, 1))
+                Line2D([], [], color=INK_2, linestyle=":", label="descongelado (ép. 10, dos etapas)")]
+    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=7, bbox_to_anchor=(0.5, -0.01))
+    fig.tight_layout(rect=(0, 0.13, 1, 1))
     fig.savefig(out, dpi=200)
     plt.close(fig)
     return out

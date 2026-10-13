@@ -1,0 +1,25 @@
+{
+  "name": "scratch",
+  "source": "yolo11n.yaml",
+  "epochs": 40,
+  "train_seconds": 3284.2,
+  "params": 2591010,
+  "args": {
+    "pretrained": false,
+    "lr0": 0.001,
+    "warmup_epochs": 3,
+    "data": "data/visdrone6.yaml",
+    "imgsz": 640,
+    "batch": 16,
+    "device": "0",
+    "workers": 6,
+    "seed": 0,
+    "deterministic": true,
+    "exist_ok": true,
+    "plots": true,
+    "optimizer": "AdamW",
+    "weight_decay": 0.0005,
+    "cache": "ram",
+    "verbose": false
+  }
+}

@@ -120,8 +120,10 @@ def body(ctx: dict, pct: Callable, num: Callable, thousands: Callable) -> str:
     ff_sentence = ""
     if ff is not None:
         d = s2["map50"] - ff["map50"]
-        ff_sentence = (f" Frente al fine-tuning en una sola etapa ({pct(ff['map50'])} %), el esquema en dos etapas "
-                       + verdict(d, "rinde más.", "rinde prácticamente igual.", "rinde menos, así que congelar primero no aportó en este caso."))
+        ff_sentence = " " + verdict(
+            d, f"Ajustar todo desde el inicio, en una sola etapa, quedó por debajo ({pct(ff['map50'])} %).",
+            f"Ajustar todo desde el inicio, en una sola etapa, dio prácticamente lo mismo ({pct(ff['map50'])} %).",
+            f"Nos sorprendió que ajustar todo desde el inicio, en una sola etapa con LR 1e-3, llegara a {pct(ff['map50'])} %, por encima de nuestro esquema; lo discutimos en la sección 3.3.")
 
     scratch_par = ""
     if sc is not None:
@@ -131,6 +133,32 @@ def body(ctx: dict, pct: Callable, num: Callable, thousands: Callable) -> str:
                        f"Donde más pesa es en las clases con pocos ejemplos: <i>{CLASS_ES[ratio[0][1]]}</i> multiplica su AP@50 por {rel(*gains[ratio[0][1]])} "
                        f"y <i>{CLASS_ES[ratio[1][1]]}</i> por {rel(*gains[ratio[1][1]])}. En <i>{CLASS_ES[ratio[-1][1]]}</i>, la clase más abundante, "
                        f"la ganancia es de solo {rel(*gains[ratio[-1][1]])} veces. Cuando faltan datos, lo aprendido en COCO reemplaza ejemplos que el modelo no tiene.</p>")
+
+    single_html = ""
+    if ff is not None:
+        cff = ctx["curves"].get("full_ft")
+        d = s2["map50"] - ff["map50"]
+        better = sum(ff["per_class"][c]["map50"] > s2["per_class"][c]["map50"] for c in s2["per_class"])
+        srows = "".join(
+            f"<tr class={'hl' if k == 'stage2' else ''}><td>{label}</td><td class=n>{pct(e['map50'])}</td><td class=n>{pct(e['map50_95'])}</td>"
+            f"<td class=n>{pct(c['metrics/mAP50(B)'].max()) if c is not None else '—'}</td><td class=n>{pct(gap[k]['train']['map50']) if k in gap else '—'}</td></tr>"
+            for k, e, c, label in (("stage2", s2, c2, "Dos etapas: 10 congeladas + 30 con LR 2e-4"),
+                                   ("full_ft", ff, cff, "Una etapa: 40 con todo libre y LR 1e-3")))
+        if d < -0.005:
+            body_txt = (f"<p>Para saber si congelar primero valía la pena, entrenamos el mismo modelo en una sola etapa: todo descongelado desde el inicio, LR 1e-3 y las mismas 40 épocas en total. "
+                        f"Esperábamos que quedara por debajo y pasó lo contrario: llegó a {pct(ff['map50'])} % de mAP@50 en test, {pct(-d)} pp más que nuestro esquema, y fue mejor en {better} de las 6 clases. "
+                        f"En la Figura {fig_curves} se ve que su curva de validación va por encima casi desde el principio.</p>"
+                        "<p>Creemos que hay dos razones. La primera es el LR: en la Etapa 2 ajustamos el backbone con 2e-4, cinco veces menos que la corrida de una etapa, y la vista aérea pide cambios grandes en los filtros, así que fuimos demasiado conservadores. "
+                        "La segunda es el presupuesto: nuestro backbone solo entrenó 30 de las 40 épocas, y la Etapa 1 corrió sin mosaic. "
+                        "El daño que temíamos, que los gradientes de la cabeza nueva arruinaran los filtros de COCO, no se vio con una sola época de warmup. "
+                        f"Hay que leer la diferencia con cuidado: es una sola semilla y la corrida de una etapa se hizo en otra GPU. Al reevaluar sus pesos en el M4, el mAP@50 en test dio {pct(gap['full_ft']['test']['map50'])} %, casi lo mismo que en la GPU donde se entrenó, así que el equipo de evaluación no explica la diferencia, aunque la variación entre semillas sí podría explicar una parte. "
+                        "Aun así, que gane en casi todas las clases sugiere que el efecto es real.</p>")
+        else:
+            body_txt = (f"<p>Para saber si congelar primero valía la pena, entrenamos el mismo modelo en una sola etapa: todo descongelado desde el inicio, LR 1e-3 y las mismas 40 épocas. "
+                        f"Llegó a {pct(ff['map50'])} % de mAP@50 en test, frente a {pct(s2['map50'])} % de nuestro esquema, así que congelar primero " + verdict(d, "sí aportó.", "no cambió el resultado.", "") + "</p>")
+        single_html = f"""<h3>3.3 ¿Una etapa o dos?</h3>
+{body_txt}
+<table><tr><th>Esquema</th><th class=n>mAP@50 test</th><th class=n>mAP@50-95 test</th><th class=n>máx. mAP@50 val</th><th class=n>mAP@50 train</th></tr>{srows}</table>"""
 
     ablation_html = ""
     if has_abl:
@@ -200,7 +228,7 @@ Nuestra capa de salida propia es la parte de clasificación de esa cabeza: reemp
 <p>La clasificación se entrena con entropía cruzada binaria por clase, y CIoU y DFL se encargan de la localización. Optimizamos con AdamW, la versión de Adam con <i>weight decay</i> desacoplado.</p>
 <h3>2.3 Esquema de transferencia en dos etapas</h3>
 <p>En la <b>Etapa 1</b> congelamos todo el backbone (<code>freeze=11</code>) y entrenamos solo el cuello y la cabeza durante 10 épocas con LR 1e-3.
-La cabeza nueva arranca al azar y al principio produce gradientes grandes; con el backbone libre, esos gradientes dañarían los filtros que trae de COCO.
+Es la práctica habitual: la cabeza nueva arranca al azar y al principio produce gradientes grandes que, con el backbone libre, podrían dañar los filtros que trae de COCO. En la sección 3.3 comprobamos si ese riesgo se da en nuestro caso.
 Verificamos el congelamiento comparando los pesos módulo por módulo: el backbone sale de la Etapa 1 {'exactamente igual' if frozen_ok else 'con cambios'} a como entró, mientras que el cuello y la cabeza sí cambian.</p>
 <p>En la <b>Etapa 2</b> descongelamos todo (<code>freeze=0</code>) y entrenamos 30 épocas más con un LR cinco veces menor, 2e-4, que baja hasta 1e-5 con decaimiento coseno.
 Descongelamos desde la capa 0 porque la vista aérea cambia incluso los rasgos más básicos que aprenden las primeras capas: objetos diminutos, vista desde arriba y texturas de techos y pavimento.</p>
@@ -215,7 +243,7 @@ Descongelamos desde la capa 0 porque la vista aérea cambia incluso los rasgos m
 
 <h2>3. Entrenamiento y curvas de aprendizaje</h2>
 <h3>3.1 Evolución de pérdidas y precisión (train contra validación)</h3>
-<figure><img src="figures/curves.png"><figcaption>Figura {fig_curves}. Curvas por época del modelo propuesto. En las pérdidas, la línea discontinua es train y la continua es validación; en el panel derecho, la discontinua es precisión y la continua es mAP@50, ambas en validación. La línea punteada marca el descongelamiento.</figcaption></figure>
+<figure><img src="figures/curves.png"><figcaption>Figura {fig_curves}. Curvas por época del esquema en dos etapas y de la corrida en una etapa. En las pérdidas, la línea discontinua es train y la continua es validación; en el panel derecho, la discontinua es precisión y la continua es mAP@50, ambas en validación. La línea punteada marca el descongelamiento.</figcaption></figure>
 <p>Durante la Etapa 1, con el backbone fijo, el mAP@50 en val sube de {pct(c1['metrics/mAP50(B)'][0])} % a {pct(c1['metrics/mAP50(B)'][-1])} %. Al descongelar sigue subiendo hasta {pct(c2['metrics/mAP50(B)'].max())} %, lo que muestra que ajustar el backbone sí aporta.
 Las pérdidas de validación bajan junto con las de train y no se separan, así que no vemos sobreajuste fuerte.
 En la época 11 la pérdida de train da un salto. No es inestabilidad: la Etapa 1 corrió sin mosaic y la Etapa 2 lo vuelve a activar, lo que hace más difíciles las imágenes de train. La pérdida de validación, que no usa aumentación, no salta.
@@ -225,7 +253,7 @@ Cuando el mosaic se apaga de nuevo (época {n1 + 21}) hay una caída breve del m
 <table><tr><th>Hito</th><th class=n>Época</th><th class=n>box train</th><th class=n>box val</th><th class=n>cls train</th><th class=n>cls val</th><th class=n>Precisión val (%)</th><th class=n>mAP@50 val (%)</th></tr>{milestone_rows}</table>
 <table><tr><th>Modelo (mejores pesos)</th><th class=n>mAP@50 train</th><th class=n>mAP@50 val</th><th class=n>mAP@50 test</th></tr>{gap_rows}</table>
 <p class=cap>Con 2.000 imágenes es normal que train quede por encima. La caída de val a test indica cuánto generaliza el modelo a secuencias que nunca vio.</p>
-{ablation_html}
+{single_html}{ablation_html}
 <h2>4. Evaluación en el conjunto de prueba</h2>
 <h3>4.1 Comparación contra los modelos base</h3>
 <table><tr><th>Modelo</th><th class=n>mAP@50 (%)</th><th class=n>mAP@50-95 (%)</th><th class=n>Precisión (%)</th><th class=n>Recall (%)</th><th class=n>Épocas</th><th class=n>Entrenamiento M4 (min)</th></tr>{comp}{gain_rows}</table>
@@ -248,7 +276,7 @@ La mejor clase es <i>{CLASS_ES[best_cls[0]]}</i> (AP@50 de {num(best_cls[1]['map
 <figure class=fp><img src="figures/false_positives.jpg"><figcaption>Figura {fig_fp}. Imágenes de test con más falsos positivos. Verde: anotaciones. Rojo: detecciones sin anotación que coincida.</figcaption></figure>
 
 <h2>5. Conclusiones, limitaciones y reproducibilidad</h2>
-<p>La transferencia funciona, pero en este dominio no basta con entrenar la cabeza. Con el backbone congelado pasamos de {pct(zs['map50'])} % a {pct(s1['map50'])} % de mAP@50 en test, y solo al ajustar también el backbone llegamos a {pct(s2['map50'])} %. La vista aérea cambia los rasgos desde las primeras capas.</p>
+<p>La transferencia funciona, pero en este dominio no basta con entrenar la cabeza. Con el backbone congelado pasamos de {pct(zs['map50'])} % a {pct(s1['map50'])} % de mAP@50 en test, y solo al ajustar también el backbone llegamos a {pct(s2['map50'])} %. La vista aérea cambia los rasgos desde las primeras capas.{(' El esquema en dos etapas nos sirvió para separar lo que aporta la cabeza de lo que aporta el backbone, pero como receta final recomendaríamos una sola etapa con LR 1e-3, que dio ' + pct(ff['map50']) + ' %.') if ff is not None and ff['map50'] > s2['map50'] + 0.005 else ''}</p>
 <p>El límite actual es la escala, no la semántica: la matriz tiene muchos más objetos perdidos que confundidos. Lo siguiente que probaríamos es entrenar con imágenes más grandes (960 a 1.280 px) o recortadas en mosaicos, agregar una salida de mayor resolución para objetos pequeños y usar las 6.471 imágenes de train.</p>
 <p>Este trabajo tiene límites claros. Usamos un subconjunto de train y una sola semilla, sin intervalos de confianza. En la GPU del M4 algunas operaciones no son deterministas aunque fijemos la semilla. Además, los triciclos quedaron fuera del problema.</p>
 <p class=small>Reproducibilidad: Python {v['python']}, PyTorch {v['torch']}, Ultralytics {v['ultralytics']} y semilla 0, en {v['machine']}{hw.get('_note', '')}. Todo se regenera con <code>python -m transfer_learning.prepare_data --download</code>, <code>python -m transfer_learning.experiments all</code>, el notebook <code>transfer_learning/act3_transfer_learning.ipynb</code> y <code>python -m transfer_learning.report.build_report</code>.</p>

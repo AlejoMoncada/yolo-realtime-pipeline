@@ -1,0 +1,25 @@
+{
+  "name": "full_ft",
+  "source": "yolo11n.pt",
+  "epochs": 40,
+  "train_seconds": 3222.8,
+  "params": 2606098,
+  "args": {
+    "freeze": 0,
+    "lr0": 0.001,
+    "warmup_epochs": 1,
+    "data": "data/visdrone6.yaml",
+    "imgsz": 640,
+    "batch": 16,
+    "device": "0",
+    "workers": 2,
+    "seed": 0,
+    "deterministic": true,
+    "exist_ok": true,
+    "plots": true,
+    "optimizer": "AdamW",
+    "weight_decay": 0.0005,
+    "cache": "ram",
+    "verbose": false
+  }
+}
