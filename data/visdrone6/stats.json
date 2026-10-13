@@ -1,0 +1,50 @@
+{
+  "val": {
+    "images": 548,
+    "instances": {
+      "person": 13969,
+      "bicycle": 1287,
+      "car": 16039,
+      "motorcycle": 4886,
+      "bus": 251,
+      "truck": 750
+    }
+  },
+  "test": {
+    "images": 1610,
+    "instances": {
+      "person": 27382,
+      "bicycle": 1302,
+      "car": 33845,
+      "motorcycle": 5845,
+      "bus": 2940,
+      "truck": 2659
+    }
+  },
+  "train": {
+    "images": 2000,
+    "available": 6471,
+    "masked_regions": 8164,
+    "instances": {
+      "person": 43732,
+      "bicycle": 4748,
+      "car": 58520,
+      "motorcycle": 12371,
+      "bus": 1409,
+      "truck": 3819
+    }
+  },
+  "config": {
+    "train_images": 2000,
+    "max_side": 1024,
+    "seed": 0,
+    "classes": [
+      "person",
+      "bicycle",
+      "car",
+      "motorcycle",
+      "bus",
+      "truck"
+    ]
+  }
+}

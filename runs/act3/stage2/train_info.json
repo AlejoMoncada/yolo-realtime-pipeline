@@ -1,0 +1,27 @@
+{
+  "name": "stage2",
+  "source": "runs/act3/stage1/weights/best.pt",
+  "epochs": 30,
+  "train_seconds": 4636.0,
+  "params": 2606098,
+  "args": {
+    "freeze": 0,
+    "lr0": 0.0002,
+    "lrf": 0.05,
+    "cos_lr": true,
+    "warmup_epochs": 0,
+    "data": "data/visdrone6.yaml",
+    "imgsz": 640,
+    "batch": 16,
+    "device": "mps",
+    "workers": 4,
+    "seed": 0,
+    "deterministic": true,
+    "exist_ok": true,
+    "plots": true,
+    "optimizer": "AdamW",
+    "weight_decay": 0.0005,
+    "cache": "ram",
+    "verbose": false
+  }
+}

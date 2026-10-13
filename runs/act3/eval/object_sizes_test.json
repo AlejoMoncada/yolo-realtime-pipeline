@@ -1,0 +1,26 @@
+{
+  "person": {
+    "median_px": 5.5,
+    "pct_lt_16px": 0.926
+  },
+  "bicycle": {
+    "median_px": 9.1,
+    "pct_lt_16px": 0.848
+  },
+  "car": {
+    "median_px": 13.5,
+    "pct_lt_16px": 0.607
+  },
+  "motorcycle": {
+    "median_px": 8.8,
+    "pct_lt_16px": 0.883
+  },
+  "bus": {
+    "median_px": 24.5,
+    "pct_lt_16px": 0.279
+  },
+  "truck": {
+    "median_px": 22.4,
+    "pct_lt_16px": 0.343
+  }
+}

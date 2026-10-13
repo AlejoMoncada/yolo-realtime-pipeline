@@ -1,0 +1,104 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>Informe Actividad 3 - Grupo 9</title><style>@page { size: Letter; margin: 15mm 16mm 14mm 16mm; }
+:root { --ink: #111; --ink-2: #4a4a46; --rule: #d9d8d3; --accent: #1f5fae; --soft: #f3f2ee; }
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+body { margin: 0; background: #fff; color: var(--ink); font: 9.6pt/1.38 "Helvetica Neue", Helvetica, Arial, sans-serif;
+       text-align: justify; hyphens: auto; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+header { border-bottom: 2px solid var(--accent); padding-bottom: 5px; margin-bottom: 7px; text-align: left; }
+header .inst { font-size: 8pt; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+header h1 { font-size: 13.5pt; line-height: 1.2; margin: 3px 0 4px; color: var(--ink); }
+header .meta { font-size: 8.4pt; color: var(--ink-2); }
+h2 { font-size: 10.6pt; color: var(--accent); margin: 9px 0 3px; break-after: avoid; }
+h3 { font-size: 9.6pt; margin: 6px 0 2px; break-after: avoid; }
+p { margin: 0 0 5px; }
+ul { margin: 0 0 5px; padding-left: 15px; }
+li { margin-bottom: 2px; }
+code { font: 8.4pt Menlo, monospace; background: var(--soft); padding: 0 2px; border-radius: 2px; }
+table { border-collapse: collapse; width: 100%; margin: 3px 0 6px; font-size: 8.2pt; text-align: left;
+        font-variant-numeric: tabular-nums; break-inside: avoid; }
+th, td { border-bottom: 1px solid var(--rule); padding: 2px 5px; vertical-align: top; }
+th { hyphens: none; background: var(--soft); font-weight: 600; border-bottom: 1px solid #bdbcb6; }
+td.n, th.n { text-align: right; }
+tr.hl td { font-weight: 600; background: #eaf1fb; }
+figure { margin: 4px 0 6px; break-inside: avoid; }
+figure img { width: 100%; display: block; }
+figcaption, .cap { font-size: 8pt; color: var(--ink-2); margin-top: 2px; text-align: left; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.box { background: var(--soft); border-left: 3px solid var(--accent); padding: 4px 8px; margin: 4px 0 6px; }
+.refs { font-size: 7.8pt; color: var(--ink-2); text-align: left; }
+.refs li { margin-bottom: 1px; }
+figure.cm img { width: 82%; margin: 0 auto; }
+ul { text-align: left; }
+ul.errs li { text-align: justify; }
+</style></head><body>
+<header>
+  <div class=inst>Universidad de La Sabana · Maestría en Inteligencia Artificial · Técnicas Avanzadas de Modelado en IA</div>
+  <h1>Prototipo de detección de movilidad urbana desde dron mediante transferencia de aprendizaje (YOLO11n → VisDrone)</h1>
+  <div class=meta>Grupo 9: Alejandro Moncada, Edgar Julián Méndez Ortegón, Noel Pérez · Actividad 3, Unidad 3 · Octubre de 2026 ·
+  Código: <a href="https://github.com/AlejoMoncada/yolo-realtime-pipeline/tree/AlejoMoncada/g9-act3-transfer-learning">github.com/AlejoMoncada/yolo-realtime-pipeline</a> (rama <code>g9-act3-transfer-learning</code>)</div>
+</header>
+
+<div class=box><b>Resumen.</b> Se adaptó un detector YOLO11n preentrenado en COCO a imágenes aéreas de dron (VisDrone2019-DET) con 6 clases de movilidad urbana.
+Sin ajuste, el modelo COCO obtiene <b>6,2 %</b> de mAP@50 en test, porque el cambio de punto de vista y la escala de los objetos lo dejan casi ciego.
+Con transferencia de aprendizaje en dos etapas (10 épocas con el backbone congelado y luego 30 de fine-tuning completo) se llega a <b>24,9 %</b> de mAP@50 y <b>13,0 %</b> de mAP@50-95, 4,0 veces el modelo base. Con el mismo presupuesto de 40 épocas, el modelo entrenado desde cero llega a 15,5 %, así que el preentrenamiento aporta 9,4 puntos porcentuales (pp) de mAP@50.
+Todas las cifras de este informe salen de los artefactos de entrenamiento del repositorio. El conjunto de prueba (1.610 imágenes de test-dev) no se usó ni para entrenar ni para elegir modelos.</div>
+
+<h2>1. Datos: carga, normalización, particiones y control de fuga</h2>
+<p><b>Carga.</b> <code>prepare_data.py</code> lee las imágenes directamente de los zips oficiales de VisDrone2019-DET. Convierte las anotaciones (<code>x,y,w,h,score,categoría</code>) al formato YOLO normalizado (<code>clase xc yc w h</code> en [0, 1]) y agrupa las 10 categorías en 6 clases que también existen en COCO: <i>persona</i> (pedestrian + people), <i>bicicleta</i>, <i>carro</i> (car + van), <i>moto</i>, <i>bus</i> y <i>camión</i>. Gracias a esa correspondencia, el modelo COCO se puede evaluar sin reentrenar como línea base justa. Los triciclos, las <i>ignored regions</i> (score = 0) y <i>others</i> se <b>enmascaran en gris</b> (114) en lugar de borrarse; si se borraran, el modelo aprendería a tratar esos objetos como fondo y sus detecciones se contarían como falsos positivos. La conversión tiene pruebas unitarias (<code>tests/test_visdrone.py</code>).</p>
+<p><b>Normalización.</b> Las imágenes se reducen a 1.024 px en el lado mayor al prepararlas. Durante el entrenamiento, Ultralytics aplica letterbox a 640×640 con relleno gris, convierte BGR→RGB y escala los píxeles a [0, 1]. No se resta la media ni se divide por la desviación de ImageNet, porque los pesos de YOLO11 se preentrenaron con esa misma escala [0, 1]; cambiarla rompería la transferencia.</p>
+<p><b>Particiones y fuga de información.</b> Se usan los splits oficiales de VisDrone, que provienen de <b>secuencias de video disjuntas</b>. Esto equivale a un <i>group split</i>: dos cuadros casi idénticos del mismo clip nunca quedan uno en entrenamiento y otro en prueba. Por límites de disco y cómputo se tomó un subconjunto de 2.000 de las 6.471 imágenes de train, muestreado en <i>round-robin</i> por secuencia con semilla 0 para conservar la diversidad de escenas. Val y test se usan completos.</p>
+<table><tr><th>Split</th><th class=n>Imágenes</th><th class=n>persona</th><th class=n>bicicleta</th><th class=n>carro</th><th class=n>moto</th><th class=n>bus</th><th class=n>camión</th><th class=n>Total</th><th>Uso</th></tr><tr><td>train</td><td class=n>2.000</td><td class=n>43.732</td><td class=n>4.748</td><td class=n>58.520</td><td class=n>12.371</td><td class=n>1.409</td><td class=n>3.819</td><td class=n>124.599</td><td>ajuste de pesos</td></tr><tr><td>val</td><td class=n>548</td><td class=n>13.969</td><td class=n>1.287</td><td class=n>16.039</td><td class=n>4.886</td><td class=n>251</td><td class=n>750</td><td class=n>37.182</td><td>selección de época y curvas</td></tr><tr><td>test</td><td class=n>1.610</td><td class=n>27.382</td><td class=n>1.302</td><td class=n>33.845</td><td class=n>5.845</td><td class=n>2.940</td><td class=n>2.659</td><td class=n>73.973</td><td>reporte final únicamente</td></tr></table>
+<p><b>Aumentación aleatoria (solo en train).</b> Mosaic (p = 1; Ultralytics lo apaga en las últimas 10 épocas de cada corrida, así que la Etapa 1, de 10 épocas, entrena sin mosaic), flip horizontal (p = 0,5), variación HSV (h = 0,015, s = 0,7, v = 0,4), escala (±50 %) y traslación (±10 %). Val y test solo pasan por letterbox. El desbalance es marcado: <i>carro</i> y <i>persona</i> suman el 82 % de las instancias de train, y <i>bus</i> solo el 1,1 %.</p>
+
+<h2>2. Transferencia de aprendizaje: qué se congela, qué se entrena y por qué</h2>
+<p><b>Modelo base.</b> YOLO11n (2,61 M de parámetros), cargado explícitamente desde los pesos COCO con <code>YOLO("yolo11n.pt")</code>. Tiene backbone (módulos 0-10: Conv/C3k2, SPPF y atención C2PSA), cuello PAN-FPN (11-22) y cabeza <code>Detect</code> desacoplada y sin anclas (23). <b>Capa de salida propia:</b> las convoluciones finales de clasificación de la cabeza se reemplazan por unas de 6 salidas inicializadas al azar, una por clase del problema. Las ramas de regresión de caja se conservan porque la geometría de las cajas es independiente de las clases.</p>
+<p><b>Etapa 1, backbone congelado</b> (<code>freeze=11</code>, 10 épocas, LR 1e-3). Solo se entrenan el cuello y la cabeza. La cabeza nueva arranca al azar y produce gradientes grandes; si el backbone estuviera libre, esos gradientes degradarían los filtros preentrenados. <b>Evidencia:</b> al comparar los checkpoints módulo por módulo, el backbone tiene |Δw|<sub>máx</sub> = 0 exacto entre <code>yolo11n.pt</code> y la Etapa 1, mientras que el cuello y la cabeza cambian hasta 2,02.
+<b>Etapa 2, fine-tuning completo</b> (<code>freeze=0</code>, 30 épocas, LR 2e-4 → 1e-5 con decaimiento coseno y sin warmup). Se descongela desde la capa 0 porque el dominio aéreo cambia hasta los rasgos de bajo nivel: escala diminuta, vista cenital y texturas de techo y pavimento. En esta etapa el backbone sí se mueve (|Δw|<sub>máx</sub> = 0,05). El LR es 5 veces menor que en la Etapa 1 para adaptar sin olvido catastrófico.</p>
+<table><tr><th>Hiperparámetro</th><th>Etapa 1</th><th>Etapa 2</th><th>Justificación</th></tr>
+<tr><td>Optimizador</td><td colspan=2>AdamW (β<sub>1</sub> = 0,937, β<sub>2</sub> = 0,999), weight decay 5e-4</td><td>Adam con decaimiento desacoplado; converge con LR fijo sin ajuste fino de momentum.</td></tr>
+<tr><td>Pérdida</td><td colspan=2>BCE (entropía cruzada binaria por clase) ×0,5 + CIoU ×7,5 + DFL ×1,5</td><td>La clasificación multietiqueta usa entropía cruzada; CIoU y DFL localizan.</td></tr>
+<tr><td>LR inicial → final</td><td>1e-3 → 1e-5 lineal</td><td>2e-4 → 1e-5 coseno</td><td>Paso grande para la cabeza nueva; paso fino para no destruir el backbone.</td></tr>
+<tr><td>Warmup</td><td>1 época</td><td>0</td><td>La Etapa 2 parte de pesos ya estables.</td></tr>
+<tr><td>Capas entrenables</td><td>11-23</td><td>0-23</td><td>Congelar el backbone (0-10) estabiliza la cabeza.</td></tr>
+<tr><td colspan=4>Comunes: imgsz 640, batch 16, semilla 0, <code>deterministic=True</code>, 2.000 imágenes de train, el mejor checkpoint se elige por mAP@50-95 en val, sin early stopping (paciencia igual al número de épocas, para que todas las corridas tengan el mismo presupuesto).</td></tr></table>
+
+<div class=box><b>Carga explícita de pesos y congelamiento</b> (<code>transfer_learning/experiments.py</code>):<br>
+<code>YOLO("yolo11n.pt").train(data="visdrone6.yaml", freeze=11, epochs=10, optimizer="AdamW", lr0=1e-3, seed=0, ...)</code> → Etapa 1<br>
+<code>YOLO("runs/act3/stage1/weights/best.pt").train(freeze=0, epochs=30, lr0=2e-4, lrf=0.05, cos_lr=True, warmup_epochs=0, ...)</code> → Etapa 2<br>
+Ultralytics transfiere al modelo de 6 clases los tensores de <code>yolo11n.pt</code> que tienen la misma forma (todo menos las convoluciones finales de clase) y congela los parámetros cuyo nombre empieza con <code>model.0.</code> a <code>model.10.</code></div>
+<h2>3. Monitoreo del entrenamiento</h2>
+<figure><img src="figures/curves.png"><figcaption>Figura 1. Curvas por época: pérdidas de entrenamiento (discontinuas) y validación (continuas); precisión (discontinua) y mAP@50 (continua) en validación. La línea punteada marca el descongelamiento del backbone en la época 10.</figcaption></figure>
+<p>En la Etapa 1, el mAP@50 en val sube de 17,4 % a 27,2 % con el backbone fijo. Al descongelar, la curva sigue subiendo hasta 33,8 % (mejor época por mAP@50-95: 37), lo que confirma que adaptar el backbone aporta. Las pérdidas de validación bajan en paralelo a las de entrenamiento y no divergen. El salto de la pérdida de <i>entrenamiento</i> en la época 11 no es inestabilidad: la Etapa 1 corrió sin mosaic y la Etapa 2 lo reactiva, lo que vuelve más difíciles las imágenes de train. La pérdida de validación, que no usa aumentación, no salta. En la época 31 (la 21 de la Etapa 2) se apaga el mosaic: hay una caída puntual del mAP en val y la pérdida de entrenamiento cambia de escala, porque las imágenes dejan de ser collages de cuatro escenas. El modelo se recupera en 1-2 épocas. Con el LR casi nulo del final, el mAP se estabiliza: más épocas aportarían poco con este presupuesto de datos.</p>
+<table><tr><th>Modelo (mejores pesos)</th><th class=n>mAP@50 train</th><th class=n>mAP@50 val</th><th class=n>mAP@50 test</th></tr><tr><td>Etapa 1 (backbone congelado)</td><td class=n>28,5</td><td class=n>26,5</td><td class=n>19,2</td></tr><tr><td>Dos etapas 10+30 (propuesto)</td><td class=n>39,6</td><td class=n>32,9</td><td class=n>24,9</td></tr></table>
+<p class=cap>Tabla de brecha: los mismos pesos se evalúan sin aumentación en los tres splits. Que el desempeño en train sea mayor es esperable con 2.000 imágenes. Test-dev viene de secuencias y condiciones distintas a las de val; la caída de val a test mide cuánto generaliza cada modelo a escenas nuevas.</p>
+
+
+<h2>4. Evaluación en el conjunto de prueba</h2>
+<table><tr><th>Modelo</th><th class=n>mAP@50 (%)</th><th class=n>mAP@50-95 (%)</th><th class=n>Precisión (%)</th><th class=n>Recall (%)</th><th class=n>Épocas</th><th class=n>Entrenamiento M4 (min)</th></tr><tr class=><td>COCO sin ajuste</td><td class=n>6,2</td><td class=n>3,1</td><td class=n>23,3</td><td class=n>8,8</td><td class=n>0</td><td class=n>—</td></tr><tr class=><td>Desde cero</td><td class=n>15,5</td><td class=n>7,3</td><td class=n>29,5</td><td class=n>18,3</td><td class=n>40</td><td class=n>—</td></tr><tr class=><td>Etapa 1 (backbone congelado)</td><td class=n>19,2</td><td class=n>10,0</td><td class=n>33,5</td><td class=n>21,8</td><td class=n>10</td><td class=n>25</td></tr><tr class=hl><td>Dos etapas 10+30 (propuesto)</td><td class=n>24,9</td><td class=n>13,0</td><td class=n>39,4</td><td class=n>26,8</td><td class=n>40</td><td class=n>102</td></tr></table>
+<p class=cap>Métricas macro sobre las 6 clases, con NMS IoU 0,7 y conf 0,001 para mAP. Precisión y recall están en el punto de máximo F1. Todas las corridas usan el mismo dataset, semilla, imgsz, batch, optimizador y presupuesto de épocas; los tiempos solo son comparables dentro del mismo equipo. En detección no se reporta <i>accuracy</i>: no existen verdaderos negativos contables (cada píxel de fondo sería uno), así que el equivalente multiclase son la precisión, el recall y el F1 por clase, con el mAP como resumen independiente del umbral.</p>
+<table><tr><th>Clase (modelo propuesto)</th><th class=n>Precisión</th><th class=n>Recall</th><th class=n>F1</th><th class=n>AP@50</th><th class=n>AP@50-95</th><th class=n>AP@50 COCO sin ajuste</th><th class=n>Instancias</th></tr><tr><td>persona</td><td class=n>0,466</td><td class=n>0,171</td><td class=n>0,250</td><td class=n>0,170</td><td class=n>0,061</td><td class=n>0,073</td><td class=n>27.382</td></tr><tr><td>bicicleta</td><td class=n>0,270</td><td class=n>0,040</td><td class=n>0,070</td><td class=n>0,047</td><td class=n>0,017</td><td class=n>0,008</td><td class=n>1.302</td></tr><tr><td>carro</td><td class=n>0,541</td><td class=n>0,623</td><td class=n>0,579</td><td class=n>0,609</td><td class=n>0,341</td><td class=n>0,200</td><td class=n>33.845</td></tr><tr><td>moto</td><td class=n>0,324</td><td class=n>0,201</td><td class=n>0,248</td><td class=n>0,159</td><td class=n>0,054</td><td class=n>0,022</td><td class=n>5.845</td></tr><tr><td>bus</td><td class=n>0,511</td><td class=n>0,329</td><td class=n>0,400</td><td class=n>0,323</td><td class=n>0,205</td><td class=n>0,027</td><td class=n>2.940</td></tr><tr><td>camión</td><td class=n>0,252</td><td class=n>0,246</td><td class=n>0,249</td><td class=n>0,187</td><td class=n>0,104</td><td class=n>0,041</td><td class=n>2.659</td></tr><tr class=hl><td>macro</td><td class=n>0,394</td><td class=n>0,268</td><td class=n>0,299</td><td class=n>0,249</td><td class=n>0,130</td><td class=n>0,062</td><td class=n>73.973</td></tr></table>
+<figure class=cm><img src="figures/confusion.png"><figcaption>Figura 3. Matrices de confusión en test (conf 0,25, IoU de emparejamiento 0,45), normalizadas por columna: cada columna es una clase real y suma 1. La fila "fondo" son objetos no detectados (falsos negativos); la columna "fondo" reparte los falsos positivos según la clase predicha.</figcaption></figure>
+<p><b>Errores que se repiten</b> (leídos en la matriz del modelo propuesto):</p>
+<ul class=errs><li><b>Predomina la falta de detección, y depende del tamaño.</b> La mayor parte del error no es confundir una clase con otra: es no detectar el objeto (fila <i>fondo</i>). Se pierde el 83 % de las personas, el 82 % de las bicicletas y el 78 % de las motos, contra el 38 % de los carros y el 54 % de los buses. El orden coincide con el tamaño aparente: a la entrada de 640 px, la mediana de una persona mide 5,5 px (√área) y el 93 % mide menos de 16 px; un bus mide 24,5 px. Con objetos de 5 a 9 px, el mapa de mayor resolución de YOLO11n (P3, stride 8) asigna menos de una celda por objeto.</li>
+<li><b>Confusiones entre vehículos grandes:</b> 445 camiones se predicen como carro (17 % de los camiones) y 385 carros como camión. También 290 buses salen como carro y 260 como camión. Desde arriba, la diferencia entre una camioneta, un furgón (<i>van</i>, que se agrupó como carro) y un camión pequeño es casi solo de largo. Esta frontera la definió el agrupamiento de clases; no es un defecto del aprendizaje.</li>
+<li><b>Vehículos de dos ruedas y personas:</b> 11 % de las bicicletas se predicen como moto, 226 personas como moto y 208 motos como persona. VisDrone anota al conductor (<i>people</i>, que aquí es persona) y a su vehículo (<i>motor</i>) como dos cajas casi superpuestas. Desde arriba, el conductor tapa casi todo el vehículo, así que el modelo tiene que decidir cuál de las dos cajas es.</li>
+<li><b>Falsos positivos sobre fondo:</b> 17.649 detecciones sin objeto real, sobre todo de carro (11.814) y persona (3.159). En la revisión visual de las imágenes de test con más falsos positivos (Figura 4), la mayoría son <b>objetos reales sin anotar</b>: carros en vías lejanas del fondo y personas dentro de multitudes nocturnas. El resto cae sobre objetos con silueta parecida, como papeleras, troncos o postes. Por eso la precisión real es mayor que la medida, y el error de verdad es el recall de objetos pequeños.</li></ul>
+<figure><img src="figures/false_positives.jpg"><figcaption>Figura 4. Imágenes de test con más falsos positivos del modelo propuesto. Verde: verdad anotada. Rojo: predicciones (conf ≥ 0,25) sin caja anotada con IoU ≥ 0,45. Casi todas son vehículos y personas reales sin anotar.</figcaption></figure>
+<p>La mejor clase en AP@50 es <i>carro</i> (0,609), la que tiene más instancias y objetos más grandes, y la peor es <i>bicicleta</i> (0,047), pequeña y escasa.</p>
+
+<h2>5. Conclusiones, limitaciones y reproducibilidad</h2>
+<ul>
+<li><b>La transferencia funciona, pero requiere fine-tuning.</b> Congelar el backbone multiplica el mAP@50 del modelo COCO por 3,1 (19,2 % en test). Descongelarlo lo lleva a 24,9 %. El cambio de dominio llega hasta los filtros de bajo nivel, así que la cabeza sola no alcanza.</li>
+<li><b>El preentrenamiento importa más en las clases escasas.</b> Contra el entrenamiento desde cero con el mismo presupuesto, el modelo propuesto mejora en las 6 clases. Las ganancias relativas más grandes son en <i>camión</i> (×2,7) y <i>bicicleta</i> (×2,5), clases con pocos ejemplos en train, y la menor es en <i>carro</i> (×1,2), la clase más abundante. Con pocos datos, las representaciones aprendidas en COCO sustituyen ejemplos que el modelo no tiene.</li><li><b>El cuello de botella es la escala, no la semántica.</b> La matriz muestra más falsos negativos que confusiones entre clases. La mejora más directa sería entrenar a mayor resolución (imgsz 960-1280) o con <i>tiling</i> (SAHI), agregar la cabeza P2 (stride 4) para objetos pequeños y usar el train completo (6.471 imágenes).</li>
+<li><b>Limitaciones.</b> Se usó un subconjunto de train y una sola semilla, sin intervalos de confianza. En MPS hay operaciones no deterministas aunque <code>deterministic=True</code> esté activo. Los triciclos quedan fuera del problema.</li>
+<li><b>Reproducibilidad.</b> Python 3.12.11, PyTorch 2.14.1, Ultralytics 8.4.176, semilla 0. Equipos: Apple M4 (MPS), 16 GB RAM, macOS; la línea base desde cero se entrenó con el mismo código, datos, semilla y configuración en una NVIDIA GTX 1660 Super (PyTorch 2.14.1+cu126), así que su mAP es comparable pero su tiempo no. Para regenerar todo: <code>python -m transfer_learning.prepare_data --download</code>, <code>python -m transfer_learning.experiments all</code>, el notebook <code>transfer_learning/act3_transfer_learning.ipynb</code> y <code>python -m transfer_learning.report.build_report</code>.</li>
+</ul>
+<ol class=refs>
+<li>Zhu, P. et al. (2021). Detection and Tracking Meet Drones Challenge. <i>IEEE TPAMI</i>, 44(11), 7380-7399 (VisDrone).</li>
+<li>Jocher, G., Qiu, J. (2024). <i>Ultralytics YOLO11</i>. https://docs.ultralytics.com</li>
+<li>Yosinski, J. et al. (2014). How transferable are features in deep neural networks? <i>NeurIPS</i>.</li>
+<li>Loshchilov, I., Hutter, F. (2019). Decoupled Weight Decay Regularization. <i>ICLR</i> (AdamW).</li>
+<li>Akyon, F. C. et al. (2022). Slicing Aided Hyper Inference and Fine-tuning for Small Object Detection. <i>ICIP</i> (SAHI).</li>
+</ol>
+</body></html>

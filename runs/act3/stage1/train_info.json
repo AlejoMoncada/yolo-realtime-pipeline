@@ -1,0 +1,25 @@
+{
+  "name": "stage1",
+  "source": "yolo11n.pt",
+  "epochs": 10,
+  "train_seconds": 1507.3,
+  "params": 2606098,
+  "args": {
+    "freeze": 11,
+    "lr0": 0.001,
+    "warmup_epochs": 1,
+    "data": "data/visdrone6.yaml",
+    "imgsz": 640,
+    "batch": 16,
+    "device": "mps",
+    "workers": 4,
+    "seed": 0,
+    "deterministic": true,
+    "exist_ok": true,
+    "plots": true,
+    "optimizer": "AdamW",
+    "weight_decay": 0.0005,
+    "cache": "ram",
+    "verbose": false
+  }
+}

@@ -48,3 +48,17 @@ Cada corrida deja en `runs/act3/<nombre>/` el archivo `results.csv` (curvas por 
 - **Clases:** person (pedestrian + people), bicycle, car (car + van), motorcycle, bus y truck. Las seis existen en COCO, así que la línea base se puede evaluar sin reentrenar.
 - **Regiones excluidas:** los triciclos, las *ignored regions* y la categoría *others* se rellenan con gris (114). Así no cuentan como positivos ni como falsos positivos.
 - **Splits:** se usan los oficiales de VisDrone (train, val y test-dev), que vienen de secuencias de video disjuntas. Del split de train se toman 2.000 imágenes, muestreadas en *round-robin* por secuencia y con semilla fija.
+
+## Estado (borrador en revisión)
+
+| Pieza | Estado |
+|---|---|
+| Datos (`data/visdrone6`, `stats.json`) | ✅ Listos. Los conteos de test coinciden entre los dos equipos. |
+| COCO sin ajuste, Etapa 1, Etapa 2 | ✅ Entrenadas y evaluadas en test (Apple M4, MPS). |
+| Desde cero | ✅ Solo las métricas de test (`runs/act3/eval/scratch/metrics.json`). Se entrenó en una GTX 1660 Super y aquí faltan sus curvas y pesos. |
+| Fine-tuning en una etapa (`full_ft`) | ⏳ Entrenando en la GTX 1660 Super. |
+| Ablación de LR (`stage2_lr1e3`) | ⏳ Entrenando en el M4. Mientras no termine, la figura del notebook muestra curvas parciales. |
+| Notebook `act3_transfer_learning.ipynb` | ✅ Se ejecuta sin errores con los artefactos actuales. Se vuelve a ejecutar al final. |
+| Informe `report/Informe_Actividad3_G9.pdf` | 📝 Borrador de 4 páginas (límite: 5). Se regenera con `python -m transfer_learning.report.build_report`. |
+
+La evidencia que respalda cada cifra del informe está en el repositorio: `runs/act3/eval/*/metrics.json` (métricas en test por modelo), `runs/act3/eval/{split_gap,module_drift,object_sizes_test}.json`, `runs/act3/{stage1,stage2}/{results.csv,args.yaml,train_info.json}` y `runs/act3/stage2/weights/best.pt` (modelo propuesto).
