@@ -1,15 +1,16 @@
 @page { size: Letter; margin: 15mm 16mm 14mm 16mm; }
-:root { --ink: #111; --ink-2: #4a4a46; --rule: #d9d8d3; --accent: #1f5fae; --soft: #f3f2ee; }
+:root { --ink: #111; --ink-2: #4a4a46; --rule: #d9d8d3; --accent: #1B365D; --accent-2: #4B6B94; --soft: #f3f2ee; }
 * { box-sizing: border-box; }
 html { color-scheme: light; }
-body { margin: 0; background: #fff; color: var(--ink); font: 9.6pt/1.38 "Helvetica Neue", Helvetica, Arial, sans-serif;
+body { margin: 0; background: #fff; color: var(--ink); font: 9.2pt/1.32 "Helvetica Neue", Helvetica, Arial, sans-serif;
        text-align: justify; hyphens: auto; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-header { border-bottom: 2px solid var(--accent); padding-bottom: 5px; margin-bottom: 7px; text-align: left; }
-header .inst { font-size: 8pt; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
-header h1 { font-size: 13.5pt; line-height: 1.2; margin: 3px 0 4px; color: var(--ink); }
-header .meta { font-size: 8.4pt; color: var(--ink-2); }
+header { border-bottom: 2px solid var(--accent); padding-bottom: 6px; margin-bottom: 7px; text-align: center; }
+header img.logo { height: 58px; display: block; margin: 0 auto 3px; }
+header .inst { font-size: 9pt; font-weight: 700; color: var(--accent-2); line-height: 1.3; }
+header h1 { font-size: 12.5pt; line-height: 1.25; margin: 5px 0 4px; color: var(--accent); }
+header .meta { font-size: 8.4pt; color: var(--accent-2); line-height: 1.35; }
 h2 { font-size: 10.6pt; color: var(--accent); margin: 9px 0 3px; break-after: avoid; }
-h3 { font-size: 9.6pt; margin: 6px 0 2px; break-after: avoid; }
+h3 { font-size: 9.6pt; margin: 6px 0 2px; color: var(--accent-2); break-after: avoid; }
 p { margin: 0 0 5px; }
 ul { margin: 0 0 5px; padding-left: 15px; }
 li { margin-bottom: 2px; }
@@ -27,6 +28,9 @@ figcaption, .cap { font-size: 8pt; color: var(--ink-2); margin-top: 2px; text-al
 .box { background: var(--soft); border-left: 3px solid var(--accent); padding: 4px 8px; margin: 4px 0 6px; }
 .refs { font-size: 7.8pt; color: var(--ink-2); text-align: left; }
 .refs li { margin-bottom: 1px; }
-figure.cm img { width: 82%; margin: 0 auto; }
+figure.cm img { width: 63%; margin: 0 auto; }
 ul { text-align: left; }
 ul.errs li { text-align: justify; }
+.eq { text-align: center; margin: 4px 0 5px; font-size: 9.6pt; }
+tr.gain td { white-space: nowrap; font-style: italic; color: var(--accent-2); background: #f7f8fb; }
+figure.fp img { width: 80%; margin: 0 auto; }
