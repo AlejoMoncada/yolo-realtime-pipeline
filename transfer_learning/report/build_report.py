@@ -82,7 +82,7 @@ def collect() -> dict:
 
 def render(ctx: dict) -> str:
     css = (HERE / "report.css").read_text(encoding="utf-8")
-    body = narrative.body(ctx, pct=pct, num=num, thousands=thousands)
+    body = narrative.body(ctx, pct=pct, num=num, thousands=thousands).replace(" %", "\u00a0%").replace(" pp", "\u00a0pp")
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <title>Informe Actividad 3 - Grupo 9</title><style>{css}</style></head><body>{body}</body></html>"""
 
